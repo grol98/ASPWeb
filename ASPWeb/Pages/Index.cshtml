@@ -1,0 +1,597 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Home page";
+    ViewData["logged"] = HttpContext.Session.GetString("logged");
+    ViewData["user"] = "user";
+    ViewData["card"] = "card";
+    ViewData["controller"] = "controller";
+}
+
+<!--Авторизация-->
+<div class="text-center"> 
+    @if (HttpContext.Session.GetString("logged") == "false")
+    {
+        <h2 class="display-4">Авторизация</h2>
+        <form method="post">            
+            <p>
+                <label>Логин</label><br>
+                <input name="login" value="admin"/>
+            </p>
+            <p>
+                <label>Пароль</label><br>
+                <input type="password" name="password" value="admin"/>
+            </p>
+            <input class="btn btn-secondary" type="submit" value="Вход" />
+        </form>
+        @if (HttpContext.Session.GetString("BadRequest") == "true")
+        {
+            <p class="err_msg">Логин и/или пароль не правильно введены</p>
+        }
+    }
+
+</div>
+
+@if (HttpContext.Session.GetString("logged") == "true")
+{   
+    <div id="nav">
+        <button class="btn btn-secondary" id="button_users" name="users">Пользователи</button>
+        <button class="btn btn-secondary" id = "button_workers"  name="workers">Сотрудники</button>
+        <button class="btn btn-secondary" id = "button_cards" name="cards">Карты</button>        
+        <button class="btn btn-secondary" id = "button_groups" name="groups">Группы</button>
+        <button class="btn btn-secondary" id = "button_access_groups" name="access_groups">Группы доступа</button>
+        <button class="btn btn-secondary" id = "button_relations_controllers_access_groups" >Связь Контроллеры - Группы доступа</button>
+        <button class="btn btn-secondary" id = "button_controllers" name="controllers">Контроллеры</button>
+        <button class="btn btn-secondary" id="button_events" name="events">События</button>
+    </div>
+    
+
+    <!--форма добавления пользователей-->
+    <div id="add_users" class="add_form d-none">
+        <form>
+            <h4>Добавить пользователя</h4>
+            <p>
+                <label>Логин</label><br>
+                <input id="add_user_log" name="regLogin" />
+            </p>
+            <p>
+                <label>Пароль</label><br>
+                <input id="add_user_passw" type="password" name="regPassword" />
+            </p>
+        </form>
+        <button class="btn btn-secondary" onclick="AddUser()">Добавить</button>
+        <p id="add_users_err" class="d-none err_msg">nope</p>
+    </div>
+
+
+    <!--Таблица пользователей-->
+    <div id="table_users" class="d-none">
+            <h1>Пользователи</h1>
+            <table class="table_home">
+                <tr>
+                    <th>ID</th>
+                    <th>Логин</th>
+                    <th>Пароль</th>
+                    <td><button class="btn btn-secondary" onclick="UserForm()">Добавить</button></td>
+                </tr>
+                @foreach (Users user in Model.users)
+                {
+                    <tr id="@($"user{user.Id}")">
+                        <td>@user.Id</td>
+                        <td>@user.login</td>
+                        <td>@user.password</td>
+                        <td>
+                            @if (HttpContext.Session.GetString("userId") != user.Id.ToString())
+                            {
+                            <button class="btn btn-secondary" onclick="DeleteUser(@user.Id)">Удалить</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </table>
+    </div>
+
+
+    <!--форма добавления сотрудников-->
+    <div id="add_workers" class="add_form d-none">        
+        <form name="add_workers_form">
+            <h4>Добавить сотрудника</h4>
+            <p>
+                <label>ИДН</label><br>
+                <input id="add_worker_idn" type="number"/>
+            </p>
+            <p>
+                <label>ФИО</label><br>
+                <input id="add_worker_fio" />
+            </p>
+            <p>
+                <label>Должность</label><br>
+                <input id="add_worker_position" />
+            </p>
+            <p>
+                <label>Группа</label><br>
+                <select id="add_worker_select_group">
+                    @foreach (Groups group in Model.groups)
+                    {
+                        <option>@group.group</option>
+                    }
+                </select>
+            </p>
+            <p>
+                <label>Комментарий(необязательно)</label><br>
+                <textarea id="add_worker_comment" cols="40" rows="10"></textarea>                
+            </p>
+            <p>
+                <label>Карта(необязательно)</label><br>
+                <input id="add_worker_card" disabled/>
+            </p>
+        </form>
+        <button id="button_worker_read_card" class="btn btn-secondary" onclick="AddWorkerReadCard()">Считать карту</button>
+        <select id="add_worker_select_card" onchange="AddWorkerСhooseCard()" onfocus="AddWorkerСhooseCard()">
+            @foreach (Cards card in Model.emptyCards)
+            {
+                <option value="@card.card">@card.card</option>
+            }
+        </select><br><br>
+        <button class="btn btn-secondary" onclick="AddWorker()">Добавить</button>
+        <p id="add_workers_err" class="d-none err_msg">nope</p>
+    </div>
+
+
+    <!--форма добавления карты сотруднику-->
+     <div id="add_card_in_worker" class="add_form d-none">
+        <form>
+            <h4>Добавить карту сотруднику</h4>
+            <p>
+                <label>ИДН</label><br>
+                <input id="add_card_in_worker_idn" disabled />
+            </p>
+            <p>
+                <label>Карта</label><br>
+                <input id="add_card_in_worker_card" disabled />
+            </p>
+        </form>
+        <button id="add_card_in_worker_read_card" class="btn btn-secondary" onclick="AddCardInWorkerReadCard()">Считать карту</button>
+        <select id="add_card_in_worker_select_card" onchange="AddCardInWorkerСhooseCard()" onfocus="AddCardInWorkerСhooseCard()">
+            @foreach (Cards card in Model.emptyCards)
+            {
+                <option value="@card.card">@card.card</option>
+            }
+        </select><br><br>
+        <button class="btn btn-secondary" onclick="AddCardInWorker()">Добавить</button>
+        <p id="add_card_in_worker_err" class="d-none err_msg">nope</p>
+    </div>
+
+
+    <!--таблица сотрудников-->
+    <div id="table_workers" class="d-none"><br>
+        <h1>Сотрудники</h1>
+        <input id="filter_worker" size="50"/>
+        <button class="btn btn-secondary" onclick="FilterWorker()">Поиск</button>
+        <button class="btn btn-secondary" onclick="WorkerForm()">Добавить</button>
+        @foreach (Groups group in Model.groups)
+        {
+            <details id="@($"workers_group_{group.Id}")" class="workers_groups">
+                <summary>@group.group</summary>
+                <table class="table_home">
+                    <tr>
+                        <th>ID</th>
+                        <th>ИДН сотрудника</th>
+                        <th>ФИО</th>
+                        <th>Должность</th>
+                        <th>Группа</th>
+                        <th>Карты</th>
+                        <th>Группы доступа</th>                        
+                        <td></td>
+                    </tr>
+                    @foreach (Workers worker in Model.workers)
+                    {
+                        @if (worker.group == group.group)
+                        {
+                            <tr id="@($"worker{worker.Id}")" class="worker_tr">
+                                <td>@worker.Id</td>
+                                <td>@worker.worker</td>
+                                <td>@worker.fio</td>
+                                <td>@worker.position</td>
+                                <td>@worker.group</td>
+                                @{
+                                    using (ApplicationContext db = new ApplicationContext())
+                                    {
+                                        List<Cards> workerCards = db.Cards.Where(p => p.worker == worker.worker).ToList();
+                                        <td>   
+                                            <select id="@($"worker{worker.Id}_select_card")">
+                                                @foreach (Cards card in workerCards)
+                                                {
+                                                    <option>@card.Id</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="@($"#Modal_worker_access_groups{worker.Id}")">Группы доступа</button><br><br>
+
+                                            <div class="modal fade" id="@($"Modal_worker_access_groups{worker.Id}")" tabindex="-1" aria-labelledby="@($"ModalLabel_worker_access_groups{worker.Id}")" aria-hidden="true">
+                                                <div class="modal-dialog">
+                                                    <div class="modal-content">
+                                                        <div class="modal-header">
+                                                            <h5 class="modal-title" id="@($"ModalLabel_worker_access_groups{worker.Id}")">Индивидуальные группы доступа для ИДН сотрудника: @worker.worker</h5>
+                                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                        </div>
+                                                        <div class="modal-body">
+                                                            @foreach (AccessGroups accessGroup in Model.accessGroups)
+                                                            {
+                                                                <input type="checkbox" class="@($"Modal_worker_access_groups{worker.Id}_checkbox")" value="@accessGroup.accessGroup" @if(worker.accessGroups.Contains(accessGroup.accessGroup)){Write("checked");} />
+                                                                @accessGroup.accessGroup
+                                                                <br>
+                                                            }
+                                                        </div>
+                                                        <div class="modal-footer">
+                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                                                            <button type="button" class="btn btn-primary" onclick="ChangeAccessGroups(@worker.Id)">Сохранить</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <input type="checkbox" onclick="ChangePersonalCheck(@worker.Id)" @if(worker.personalCheck == 1) {Write("checked"); } />
+                                            <select>
+                                                @foreach (string accessGroup in worker.accessGroups)
+                                                {
+                                                    <option>@accessGroup</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-secondary" onclick="DeleteWorker(@worker.Id)">Удалить</button><br>
+                                            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="@($"#Modal_worker_redact{worker.Id}")">Редактировать</button><br>
+
+                                            <div class="modal fade" id="@($"Modal_worker_redact{worker.Id}")" tabindex="-1" aria-labelledby="@($"ModalLabel_worker_redact{worker.Id}")" aria-hidden="true">
+                                                <div class="modal-dialog">
+                                                    <div class="modal-content">
+                                                        <div class="modal-header">
+                                                            <h5 class="modal-title" id="@($"ModalLabel_worker_redact{worker.Id}")">Редактирование ИДН сотрудника: @worker.worker</h5>
+                                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                        </div>
+                                                        <div class="modal-body">
+                                                            <p>
+                                                                <label>ИДН</label><br>
+                                                                <input id="@($"Modal_worker_redact{worker.Id}_worker")" value="@worker.worker" type="number"/>
+                                                            </p>
+                                                            <p>
+                                                                <label>ФИО</label><br>
+                                                                <input id="@($"Modal_worker_redact{worker.Id}_fio")" value="@worker.fio" />
+                                                            </p>
+                                                            <p>
+                                                                <label>Должность</label><br>
+                                                                <input id="@($"Modal_worker_redact{worker.Id}_position")" value="@worker.position" />
+                                                            </p>
+                                                            <p>
+                                                                <label>Группа</label><br>
+                                                                <select id="@($"Modal_worker_redact{worker.Id}_select_group")">
+                                                                    @foreach (Groups group2 in Model.groups)
+                                                                    {
+                                                                        @if (group.group == group2.group) {
+                                                                            <option selected>@group2.group</option>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <option>@group2.group</option>
+                                                                        }
+                                                                    }
+                                                                </select>
+                                                            </p>
+                                                            <p>
+                                                                <label>Комментарий</label><br>
+                                                                <textarea id="@($"Modal_worker_redact{worker.Id}_comment")" cols="40" rows="10">@worker.comment</textarea>
+                                                            </p>
+                                                            <p id="@($"Modal_worker_redact{worker.Id}_err")" class="d-none err_msg">nope</p>
+                                                        </div>
+                                                        <div class="modal-footer">
+                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                                                            <button type="button" class="btn btn-primary" onclick="RedactWorker(@worker.Id, @worker.worker)">Сохранить</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <button class="btn btn-secondary" onclick="AddCardInWorkerForm(@worker.worker)">Добавить карту</button><br>
+                                            @if (workerCards.Count > 0)
+                                            {
+                                                <button class="btn btn-secondary" onclick="RemoveCardFromWorker(@worker.worker, @worker.Id)">Убрать карту</button>                                                
+                                            }
+                                        </td>                                        
+                                    }
+                                }
+                        </tr>
+                        }
+                    }
+                </table>
+            </details>
+        }
+    </div>
+
+
+    <!--форма добавления карт-->
+    <div id="add_cards" class="add_form d-none">
+        <form>
+            <h4>Добавить карту</h4>
+            <p>
+                <label>Номер карты</label><br>
+                <input id="add_card_id" disabled />
+            </p>            
+            <p>
+                <label>ИДН сотрудника(необязательно)</label><br>
+                <input id="add_card_worker" />
+            </p>
+        </form>
+        <button id="button_read_card" class="btn btn-secondary" onclick="ReadCard()">Считать карту</button><br><br>
+        <button class="btn btn-secondary" onclick="AddCard()">Добавить</button>
+        <p id="add_cards_err" class="d-none err_msg">nope</p>
+    </div>
+
+
+    <!--таблица карт-->
+    <div id="table_cards" class="d-none"><br>
+        <h1>Карты</h1>
+        <input id="filter_card" size="50"/>
+        <button class="btn btn-secondary" onclick="FilterCard()">Поиск</button>
+        <button class="btn btn-secondary" onclick="CardForm()">Добавить</button>
+        <table class="table_home">
+            <tr>
+                <th>ID</th>
+                <th>Номер карты</th>
+                <th>Номер карты16</th>
+                <th>Сотрудник</th>
+                <td></td>
+            </tr>
+            @foreach (Cards card in Model.cards)
+            {
+                <tr id="@($"card{card.Id}")" class="card_tr">
+                    <td>@card.Id</td>
+                    <td>@card.card</td>
+                    <td>@card.card16</td>
+                    <td>@card.worker</td>
+                    <td><button class="btn btn-secondary" onclick="DeleteCard(@card.Id)">Удалить</button></td>
+                </tr>
+            }
+        </table>
+    </div>
+
+
+    <!--таблица контроллеров-->
+    <div id="table_controllers" class="d-none">
+        <h1>Контроллеры</h1>
+        <table class="table_home">
+            <tr>
+                <th>ID</th>
+                <th>Тип контроллера</th>
+                <th>Серийный номер контроллера</th>
+                <th>Версия прошивки контроллера</th>
+                <th>Версия прошивки модуля связи</th>
+                <th>IP адрес контроллера в локальной сети</th>
+            </tr>
+            @foreach (Controllers controller in Model.controllers)
+            {
+                <tr id="@($"controller{controller.Id}")">
+                    <td>@controller.Id</td>
+                    <td>@controller.type</td>
+                    <td>@controller.sn</td>
+                    <td>@controller.fw</td>
+                    <td>@controller.conn_fw</td>
+                    <td>@controller.controller_ip</td>
+                    <td><button class="btn btn-secondary" onclick="DeleteController(@controller.Id)">Удалить</button></td>
+                </tr>
+            }
+        </table>
+    </div>
+
+
+    <!--таблица событий-->
+    <div id="table_events" class="d-none">
+        <h1>События</h1>
+        <table class="table_home">
+            <tr>
+                <th>ID</th>
+                <th>Серийный номер контроллера</th>
+                <th>Тип события</th>
+                <th>Номер карты</th>
+                <th>Время события</th>
+                <th>Флаги события</th>
+            </tr>
+            @foreach (Events Event in Model.events)
+            {
+                <tr>
+                    <td>@Event.Id</td>
+                    <td>@Event.sn</td>
+                    <td>
+                        @if (Model.eventCodes.FirstOrDefault(p => p.eventCode == Event.Event) is null)
+                        { Write(Event.Event); }
+                        else
+                        { Write(Model.eventCodes.FirstOrDefault(p => p.eventCode == Event.Event).Event); }
+                    </td>
+                    <td>@Event.card</td>
+                    <td>@Event.time</td>
+                    <td>@Event.flag</td>
+                </tr>
+            }
+        </table>
+    </div>
+
+
+    <!--форма добавления группы-->
+    <div id="add_form_group" class="add_form d-none">
+        <form>
+            <h4>Добавить группу</h4>
+            <p>
+                <label>Название группы</label><br>
+                <input id="add_group_name" />
+            </p>            
+        </form>
+        <button class="btn btn-secondary" onclick="AddGroup()">Добавить</button>
+        <p id="add_groups_err" class="d-none err_msg">nope</p>
+    </div>
+
+
+    <!--форма добавления группы доступа в группу-->
+    <div id="add_access_group_in_group" class="add_form d-none">
+        <form>
+            <h4>Добавить группу</h4>
+            <p>
+                <label>Id группы</label><br>
+                <input id="add_access_group_in_group_name" disabled/>
+            </p>
+            <p>
+                <label>Группа доступа</label><br>
+                <select id="add_access_group_in_group_select">
+                    @foreach (AccessGroups accessGroup in Model.accessGroups)
+                    {
+                        <option id="@($"add_access_group_in_group_option_{accessGroup.accessGroup}")" class="add_access_group_in_group_option">@accessGroup.accessGroup</option>
+                    }
+                </select>
+            </p>
+        </form>
+        <button class="btn btn-secondary" onclick="AddAccessGroupInGroup()">Добавить</button>
+        <p id="add_access_group_in_group_err" class="d-none err_msg">nope</p>
+    </div>
+
+
+    <!--Таблица групп-->
+    <div id="table_groups" class="d-none">
+        <h1>Группы</h1>
+        <table class="table_home">
+            <tr>
+                <th>ID</th>
+                <th>Группа</th>
+                <th>Группы доступа</th>
+                <td><button class="btn btn-secondary" onclick="GroupForm()">Добавить</button></td>
+            </tr>
+            @foreach (Groups group in Model.groups)
+            {
+                <tr>
+                    <td>@group.Id</td>
+                    <td>@group.group</td>
+                    <td>
+                        <select id="@($"group{group.Id}_select_access_group")">
+                            @foreach (string accessGroup in group.accessGroups)
+                            {
+                                <option>@accessGroup</option>
+                            }
+                        </select>
+                    </td>
+                    <td>
+                        @{
+                            using (ApplicationContext db = new ApplicationContext())
+                            {
+                                List<AccessGroups> accessGroupsdb = db.AccessGroups.ToList();
+                                if (accessGroupsdb.Count > group.accessGroups.Count)
+                                {
+                                    <button class="btn btn-secondary" onclick="AddAccessGroupInGroupForm(@group.Id)">Добавить группу доступа</button>
+                                }
+                            }
+                            if (group.accessGroups.Count > 0)
+                            {
+                                <button class="btn btn-secondary" onclick="RemoveAccessGroupFromGroup(@group.Id)">Удалить группу доступа</button>
+                            }
+                        }
+                        <button class="btn btn-secondary" onclick="DeleteGroup(@group.Id)">Удалить</button>
+                    </td>
+                </tr>
+            }
+        </table>
+    </div>                                   
+
+
+    <!--форма добавления группы доступа-->
+    <div id="add_form_access_group" class="add_form d-none">
+        <form>
+            <h4>Добавить группу доступа</h4>
+            <p>
+                <label>Название группы доступа</label><br>
+                <input id="add_access_group_name" />
+            </p>
+        </form>
+        <button class="btn btn-secondary" onclick="AddAccessGroup()">Добавить</button>
+        <p id="add_acces_group_err" class="d-none err_msg">nope</p>
+    </div>
+
+
+    <!--таблица групп доступа-->
+    <div id="table_access_groups" class="d-none">
+        <h1>Группы доступа</h1>
+        <table class="table_home">
+            <tr>
+                <th>ID</th>
+                <th>Группа доступа</th>
+                <td><button class="btn btn-secondary" onclick="AccessGroupForm()">Добавить</button></td>
+            </tr>
+            @foreach (AccessGroups accessGroup in Model.accessGroups)
+            {
+                <tr>
+                    <td>@accessGroup.Id</td>
+                    <td>@accessGroup.accessGroup</td>
+                    <td><button class="btn btn-secondary" onclick="DeleteAccessGroup(@accessGroup.Id)">Удалить</button></td>
+                </tr>
+            }
+        </table>
+    </div>
+
+
+    <!--форма добавления связи контроллер - группа доступа-->
+    <div id="add_relations_controllers_access_groups" class="add_form d-none">        
+        <form>
+            <h4>Добавить связь <br>контроллер - группа доступа</h4>
+            <p>
+                <label>Серийный номер контроллера</label><br>
+                <select id="add_relations_controllers_access_groups_sn">
+                    @foreach (Controllers controller in Model.controllers)
+                    {
+                        <option>@controller.sn</option>
+                    }
+                </select>
+            </p>
+            <p>
+                <label>Группа доступа</label><br>
+                <select id="add_relations_controllers_access_groups_group">
+                    @foreach (AccessGroups accessGroup in Model.accessGroups)
+                    {
+                        <option>@accessGroup.accessGroup</option>
+                    }
+                </select>
+            </p>
+            <p>
+                <label>Вход </label>
+                <input type="checkbox" id="add_relations_controllers_access_groups_in" />
+                <label> Выход </label>
+                <input type="checkbox" id="add_relations_controllers_access_groups_out" />
+            </p>
+        </form>
+        <button class="btn btn-secondary" onclick="AddRelationsControllersAccessGroups()">Добавить</button>
+        <p id="add_relations_controllers_access_groups_err" class="d-none err_msg">nope</p>
+    </div>
+
+
+    <!--таблица связи контроллер - группа доступа-->
+    <div id="table_relations_controllers_access_groups" class="d-none">
+        <h1>Связи контроллер - группа доступа</h1>
+        <br>
+        <input size="50" id="filter_relations_controllers_access_groups" />
+        <button class="btn btn-secondary" onclick="FilterRelationsControllersAccessGroups()">Поиск</button>
+        <table class="table_home">
+            <tr>
+                <th>ID</th>
+                <th>Серийный номер контроллера</th>
+                <th>Группа доступа</th>
+                <th>Считыватель</th>
+                <td><button class="btn btn-secondary" onclick="RelationsControllersAccessGroupsForm()">Добавить</button></td>
+            </tr>
+            @foreach (RelationsControllersAccessGroups relation in Model.relationControllersAccessGroups)
+            {
+                <tr id="@($"relation{relation.Id}_controllers_access_groups_tr")" class="relations_controllers_access_groups_tr">
+                    <td>@relation.Id</td>
+                    <td>@relation.sn</td>
+                    <td>@relation.accessGroup</td>
+                    <td>@relation.reader</td>
+                    <td><button class="btn btn-secondary" onclick="DeleteRelationsControllersAccessGroups(@relation.Id)">Удалить</button></td>
+                </tr>                
+            }
+        </table>           
+    </div>
+}

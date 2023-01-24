@@ -1,0 +1,20 @@
+﻿@page
+@model PrivacyModel
+@{
+    ViewData["Title"] = "Privacy Policy";
+    ViewData["logged"] = HttpContext.Session.GetString("logged");
+}
+@if (false)
+{
+    <h1>@ViewData["Title"]</h1>
+
+    <h2>@Model.Message</h2>
+
+    @if (HttpContext.Session.GetString("logged") == "true")
+    {
+        <form method="post">
+            <input type="number" name="sum" />
+            <input type="submit" value="Send" />
+        </form>
+    }
+}
