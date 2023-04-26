@@ -1,3 +1,10 @@
+using ASPWeb.Interfaces;
+using ASPWeb.Logging;
+using ASPWeb.Models;
+using ASPWeb.Repository;
+using Microsoft.EntityFrameworkCore;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
+
 namespace ASPWeb
 {
     public class Program
@@ -8,8 +15,16 @@ namespace ASPWeb
 
             // Add services to the container.
             builder.Services.AddRazorPages();
-            builder.Services.AddSession();
-            
+            builder.Services.AddSession(options => 
+            {
+                options.IdleTimeout = TimeSpan.FromMinutes(600);
+            });
+            builder.Services.AddDbContext<ApplicationContext>();
+            builder.Services.AddTransient<IWorkersRep, WorkersRepository>();
+            builder.Services.AddTransient<IGroupsRep, GroupsRepository>();
+            builder.Services.AddTransient<DataManager>();
+           
+
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.

@@ -1,10 +1,17 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Aspose.Pdf;
+using Aspose.Pdf.Text;
+using ASPWeb.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.Extensions.Logging;
-using System.IO.Ports;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using OfficeOpenXml;
+using OfficeOpenXml.Style;
+using System;
+using System.Reflection.Metadata;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace ASPWeb.Pages
 {
@@ -12,6 +19,7 @@ namespace ASPWeb.Pages
     public class IndexModel : PageModel
     {
         private readonly ILogger<IndexModel> _logger;
+        private readonly ApplicationContext dbcontext;
         public string Message { get; set; }
         public List<Users> users { get; set; }
         public List<Cards> cards { get; set; }
@@ -22,26 +30,42 @@ namespace ASPWeb.Pages
         public List<Workers> workers { get; set; }
         public List<Groups> groups { get; set; }
         public List<AccessGroups> accessGroups { get; set; }
-        public List<RelationsControllersAccessGroups> relationControllersAccessGroups { get; set; }
+        public List<RelationsControllersAccessGroups> relationsControllersAccessGroups { get; set; }
+        public List<RelationsControllersWorkers> relationsControllersWorkers { get; set; }
+        public IFormFile? formFile { get; set; }
 
-        public IndexModel(ILogger<IndexModel> logger)
+        private Microsoft.AspNetCore.Hosting.IHostingEnvironment hostingEnvironment;
+        public DataManager _dataManager;
+
+        public IndexModel(ILogger<IndexModel> logger, ApplicationContext db, Microsoft.AspNetCore.Hosting.IHostingEnvironment environment, DataManager dataManager)
         {
+            var prevDay = DateTime.UtcNow.AddDays(-1);
             _logger = logger;
-            users = new List<Users>();
-            cards = new List<Cards>();
-            controllers = new List<Controllers>();
-            events = new List<Events>();
-            eventCodes = new List<EventCodes>();
-            workers = new List<Workers>();
-            groups = new List<Groups>();
-            accessGroups = new List<AccessGroups>();
-            relationControllersAccessGroups = new List<RelationsControllersAccessGroups>();
+            users = db.Users.OrderBy(p => p.Id).ToList();
+            cards = db.Cards.OrderByDescending(p => p.Id).ToList();
+            emptyCards = cards.Where(p => p.workerId == null).OrderBy(p => p.card).ToList();
+            controllers = db.Controllers.OrderBy(p => p.Id).ToList();
+            events = db.Events.Where(p => p.dateTime > prevDay).OrderByDescending(p => p.Id).Include(p => p.worker).ToList();
+            eventCodes = db.EventCodes.OrderBy(p => p.Id).ToList();
+            workers = db.Workers.OrderBy(p => p.LastName).Include(p => p.cards).ToList();
+            groups = db.Groups.OrderBy(p => p.group).ToList();
+            accessGroups = db.AccessGroups.OrderBy(p => p.Id).ToList();
+            relationsControllersAccessGroups = db.RelationsControllersAccessGroups.OrderBy(p => p.sn).ThenBy(p => p.accessGroup).ToList();
+            relationsControllersWorkers = db.RelationsControllersWorkers.OrderBy(p => p.sn).ThenBy(p => p.workerId).ToList();
+            hostingEnvironment = environment;
+            dbcontext = db;
+            _dataManager = dataManager;
+        }
+
+        ~IndexModel() 
+        {
+            dbcontext.Dispose();
         }
 
         public void OnGet()
         {
             if (!HttpContext.Session.Keys.Contains("logged"))
-            {             
+            {
                 HttpContext.Session.SetString("logged", "false");
                 HttpContext.Session.SetString("BadRequest", "false");
                 HttpContext.Session.SetString("tables", "false");
@@ -60,7 +84,7 @@ namespace ASPWeb.Pages
                     groups = db.Groups.OrderBy(p => p.Id).ToList();
                     accessGroups = db.AccessGroups.OrderBy(p => p.Id).ToList();
                     relationControllersAccessGroups = db.RelationsControllersAccessGroups.OrderBy(p => p.Id).ToList();
-                }
+        }
             }
         }
 
@@ -95,6 +119,23 @@ namespace ASPWeb.Pages
             }
             string url = "/";
             return Redirect(url);
+        }
+
+        public IActionResult OnGetLogOn(string login, string password, string tab)
+        {
+            if (tab != null)
+            {
+                HttpContext.Session.SetString("tab", tab);
+            }
+            Users? user = dbcontext.Users.FirstOrDefault(p => p.login == login && p.password == password);
+            if (user is null)
+            {
+                return Content("Логин и/или пароль не правильно введены");
+            }
+            HttpContext.Session.SetString("logged", "true");
+            HttpContext.Session.SetString("userLogin", user.login);
+            HttpContext.Session.SetString("userId", user.Id.ToString());
+            return Content("true");
         }
 
 
@@ -141,111 +182,136 @@ namespace ASPWeb.Pages
         // Удаление пользователя
         public void DeleteUser(int id)
         {
-            using (ApplicationContext db = new ApplicationContext())
-            {
-                Users? user = db.Users.FirstOrDefault(p => p.Id == id);
-                db.Users.Remove(user);
-                _logger.LogInformation($"deleted user id: {user.Id}; login: {user.login}");
+            Users? user = dbcontext.Users.FirstOrDefault(p => p.Id == id);
+            dbcontext.Users.Remove(user);
+            _logger.LogInformation($"deleted user id: {user.Id}; login: {user.login}");
 
-                db.SaveChanges();
-            }
+            dbcontext.SaveChanges();
+        }
         }
 
 
         // Удаление сотрудника
         public void DeleteWorker(int id)
         {
-            using (ApplicationContext db = new ApplicationContext())
+            Workers? workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == id);
+            if (workerdb is null)
             {
                 Workers? workerdb = db.Workers.FirstOrDefault(p => p.Id == id);
                 var controllersdb = db.Controllers.ToList();
                 if (workerdb is null || controllersdb.Count == 0)
                 {
-                    return;
-                }
-                
-                List<string> accessGroupsLocal;
-                if (workerdb.personalCheck == 1)
-                {
-                    accessGroupsLocal = workerdb.accessGroups;
-                }
-                else
-                {
-                    var groupsdb = db.Groups.FirstOrDefault(p => p.group == workerdb.group);
-                    if (groupsdb is null)
-                    {
-                        return;
-                    }
-                    accessGroupsLocal = groupsdb.accessGroups;
-                }
-                if (accessGroupsLocal.Count == 0)
-                {
-                    return;
-                }
+                return;
+            }
+
+            List<int> controllersSn = new List<int>();
+            var accessPoints = dbcontext.RelationsControllersWorkers.Where(p => p.workerId == workerdb.Id).ToList();
+            if (workerdb.personalCheck == 1)
+            {
+                var groupsdb = dbcontext.Groups.FirstOrDefault(p => p.group == workerdb.group);
+                if (groupsdb is null) { return; }
+                controllersSn = GetControllersListByAccessGroups(groupsdb.accessGroups);
+            }
+            if (workerdb.personalCheck == 2) { controllersSn = GetControllersListByAccessGroups(workerdb.accessGroups); }
+            if (workerdb.personalCheck == 3) { controllersSn = GetControllersListByRelatinsControllerWorker(accessPoints); }
+            dbcontext.RelationsControllersWorkers.RemoveRange(accessPoints);
+
+            if (workerdb.Image != null)
+            {
+                RemoveImage(workerdb.Image);
+            }
+            dbcontext.Workers.Remove(workerdb);
+
+            var cardsdb = dbcontext.Cards.Where(p => p.workerId == workerdb.Id).ToList();
+            foreach (Cards card in cardsdb) // удаление сотрудника из всех карт
+            {
+                card.workerId = null;
+                dbcontext.Cards.Update(card);
+            }
                 db.Workers.Remove(workerdb);
 
-                var cardsdb = db.Cards.Where(p => p.worker == workerdb.worker).ToList();
-                List<RelationsControllersAccessGroups> relationsdb;
-                foreach (Controllers controller in controllersdb)
+            var controllersdb = dbcontext.Controllers.ToList();
+            foreach (var contr in controllersdb)
+            {
+                // Удаление карт из контроллера
+                if (controllersSn.Contains(contr.sn))
                 {
-                    relationsdb = new List<RelationsControllersAccessGroups>();
-                    foreach (string accessGroup in accessGroupsLocal)
+                    foreach (var card in cardsdb)
                     {
-                        relationsdb.AddRange(db.RelationsControllersAccessGroups.Where(p => p.accessGroup == accessGroup && p.sn == controller.sn).ToList());
-                    }
-                    if (relationsdb.Count > 0)
-                    {
-                        foreach (Cards card in cardsdb)
-                        {
-                            // Удаление из контроллера
-                            DeleteCardFromController(controller.sn, card.card16);
-                        }
+                        DeleteCardFromController(contr.sn, card.card16);
                     }
                 }
+            }
                 foreach (Cards card in cardsdb) // удаление сотрудника из всех карт
                 {
                     card.worker = null;
                     db.Cards.Update(card);
                 }
 
-                _logger.LogInformation($"deleted worker: {JsonSerializer.Serialize(workerdb)}");
-                db.SaveChanges();
+            _logger.LogInformation($"deleted worker: {JsonSerializer.Serialize(workerdb)}");
+            dbcontext.SaveChanges();
+        }
+
+        public IActionResult OnGetDeleteImage(int workerId)
+        {
+            var workerdb = _dataManager.workers.GetWorkerById(workerId);
+            if (workerdb is null)
+            {
+                return Content("Нет такого сотрудника");     
             }
+            if (workerdb.Image == null)
+            {
+                return Content("Нет такой фотографии");
+            }
+            RemoveImage(workerdb.Image);
+            workerdb.Image = null;
+            dbcontext.Workers.Update(workerdb);
+            dbcontext.SaveChanges();
+            return Content("true");
         }
 
 
         // Удаление карты
         public void DeleteCard(int id)
         {
-            using (ApplicationContext db = new ApplicationContext())
+            Cards? card = dbcontext.Cards.FirstOrDefault(p => p.Id == id);
+            if (card is not null)
             {
-                Cards? card = db.Cards.FirstOrDefault(p => p.Id == id);
-                db.Cards.Remove(card);
-                if (card is null || card.worker is null)
-                {
-                    return;
-                }
-                Workers? workerdb = db.Workers.FirstOrDefault(p => p.worker == card.worker);
-                var controllersdb = db.Controllers.ToList();
-                if (workerdb is null || controllersdb.Count == 0)
-                {
-                    return;
-                }
+                dbcontext.Cards.Remove(card);
+            }
+            if (card.workerId is null)
+            {
+                dbcontext.SaveChanges();
+                return;
+            }
+            Workers? workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == card.workerId);
+            if (workerdb is null)
+            {
+                return;
+            }
 
-                List<string> accessGroupsLocal;
-                if (workerdb.personalCheck == 1)
+            List<int> controllersSn = new List<int>();
+            var accessPoints = dbcontext.RelationsControllersWorkers.Where(p => p.workerId == workerdb.Id).ToList();
+            if (workerdb.personalCheck == 1)
+            {
+                var groupsdb = dbcontext.Groups.FirstOrDefault(p => p.group == workerdb.group);
+                if (groupsdb is null) { return; }
+                controllersSn = GetControllersListByAccessGroups(groupsdb.accessGroups);
+            }
+            if (workerdb.personalCheck == 2) { controllersSn = GetControllersListByAccessGroups(workerdb.accessGroups); }
+            if (workerdb.personalCheck == 3) { controllersSn = GetControllersListByRelatinsControllerWorker(accessPoints); }
+            dbcontext.RelationsControllersWorkers.RemoveRange(accessPoints);
+
+            var controllersdb = dbcontext.Controllers.ToList();
+            foreach (var contr in controllersdb)
+            {
+                // Удаление карт из контроллера
+                if (controllersSn.Contains(contr.sn))
                 {
-                    accessGroupsLocal = workerdb.accessGroups;
+                    DeleteCardFromController(contr.sn, card.card16);
                 }
-                else
-                {
-                    var groupsdb = db.Groups.FirstOrDefault(p => p.group == workerdb.group);
-                    if (groupsdb is null)
-                    {
-                        return;
-                    }
                     accessGroupsLocal = groupsdb.accessGroups;
-                }
+            }
                 if (accessGroupsLocal.Count == 0)
                 {
                     return;
@@ -254,17 +320,12 @@ namespace ASPWeb.Pages
                 foreach (Controllers controller in controllersdb)
                 {
 
-                    var relationsdb = db.RelationsControllersAccessGroups.Where(p => p.sn == controller.sn && accessGroupsLocal.Contains(p.accessGroup)).ToList();
-                    if (relationsdb.Count > 0)
-                    {
-                        // Удаление из контроллера
-                        DeleteCardFromController(controller.sn, card.card16);
-                    }
-                }
-                
+            dbcontext.SaveChanges();
+            _logger.LogInformation($"deleted card: {JsonSerializer.Serialize(card)}");
+
                 db.SaveChanges();
                 _logger.LogInformation($"deleted card: {JsonSerializer.Serialize(card)}");
-            }
+        }
         }
 
 
@@ -274,11 +335,13 @@ namespace ASPWeb.Pages
             using (ApplicationContext db = new ApplicationContext())
             {
                 Controllers? controller = db.Controllers.FirstOrDefault(p => p.Id == id);
-                var relations = db.RelationsControllersAccessGroups.Where(p => p.sn == controller.sn).ToList();
-                db.RelationsControllersAccessGroups.RemoveRange(relations);
+                var relationsAccessGroups = db.RelationsControllersAccessGroups.Where(p => p.sn == controller.sn).ToList();
+                var relationsWorkers = db.RelationsControllersWorkers.Where(p => p.sn == controller.sn).ToList();
+                db.RelationsControllersAccessGroups.RemoveRange(relationsAccessGroups);
+                db.RelationsControllersWorkers.RemoveRange(relationsWorkers);
                 db.Controllers.Remove(controller);
                 _logger.LogInformation($"deleted controller id: {controller.Id}; login: {controller.sn}");
-                db.SaveChanges();                
+                db.SaveChanges();
             }
         }
 
@@ -301,7 +364,7 @@ namespace ASPWeb.Pages
                 db.Groups.Remove(group);
                 db.SaveChanges();
                 return "true";
-            }            
+            }
         }
 
 
@@ -315,32 +378,52 @@ namespace ASPWeb.Pages
                 {
                     return "Нет такой группы доступа";
                 }
-                var workersdb = db.Workers.ToList();
-                var relationsdb = db.RelationsControllersAccessGroups.Where(p => p.accessGroup == accessGroup.accessGroup).ToList();
-                var controllersdb = db.Controllers.Where(p => relationsdb.Exists(d => d.sn == p.sn)).ToList();
-                foreach (var worker in workersdb)
+                var groupsdb = db.Groups.Where(p => p.accessGroups.Contains(accessGroup.accessGroup)).ToList();
+                var workersdb = db.Workers.Where(p => p.accessGroups.Contains(accessGroup.accessGroup) ||
+                    (groupsdb.Count > 0 && groupsdb.Exists(d => d.group == p.group))).ToList();
+
+                foreach (var contr in controllers)
                 {
-                    List<string> accessGroupsNew;
-                    if (worker.personalCheck == 1)
+                    int cardCount = 0;
+                    List<string> cardList = new List<string>();
+                    foreach (var worker in workersdb)
                     {
-                        if (!worker.accessGroups.Contains(accessGroup.accessGroup))
+                        // Поиск старого и нового списков контролеров
+                        List<int> controllersSnOld = new List<int>();
+                        List<int> controllersSnNew = new List<int>();
+                        if (worker.personalCheck == 1)
                         {
-                            continue;
+                            var groupdb = db.Groups.FirstOrDefault(p => p.group == worker.group);
+                            controllersSnOld = GetControllersListByAccessGroups(groupdb.accessGroups);
+                        }
+                        if (worker.personalCheck == 2) { controllersSnOld = GetControllersListByAccessGroups(worker.accessGroups); }
+                        if (worker.accessGroups.Contains(accessGroup.accessGroup))
+                        {
+                            worker.accessGroups.Remove(accessGroup.accessGroup);
                         }
                         worker.accessGroups.Remove(accessGroup.accessGroup);
                         db.Workers.Update(worker);
-                        accessGroupsNew = worker.accessGroups;
-                    }
-                    else
-                    {
-                        var groupdb = db.Groups.FirstOrDefault(p => p.group == worker.group);
-                        if (!groupdb.accessGroups.Contains(accessGroup.accessGroup))
+                        if (worker.personalCheck == 2) { controllersSnNew = GetControllersListByAccessGroups(worker.accessGroups); }
+
+
+                        // Удаление карт из контроллера
+                        if (controllersSnOld.Contains(contr.sn) && !controllersSnNew.Contains(contr.sn))
                         {
-                            continue;
-                        }
+                            
+                            var cardsdb = db.Cards.Where(p => p.workerId == worker.Id);
+                            foreach (var card in cardsdb)
+                            {
+                                cardCount++;
+                                cardList.Add(card.card16);
+                                if (cardCount == 10)
+                                {
+                                    DeleteCardFromControllerRange(contr.sn, cardList);
+                                    cardList = new List<string>();
+                                    cardCount = 0;
+                                }
                         accessGroupsNew = groupdb.accessGroups;
                         accessGroupsNew.Remove(accessGroup.accessGroup);
-                    }
+                            }
                     foreach (var controller in controllersdb)
                     {
                         var relationOld = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == controller.sn && p.accessGroup == accessGroup.accessGroup);
@@ -354,8 +437,9 @@ namespace ASPWeb.Pages
                         foreach (var card in cardsdb)
                         {
                             DeleteCardFromController(controller.sn, card.card16);
-                        }
                     }
+                    DeleteCardFromControllerRange(contr.sn, cardList);
+                }
                 }
                 var groupsdb = db.Groups.Where(p => p.accessGroups.Contains(accessGroup.accessGroup)).ToList();
                 foreach (var group in groupsdb)
@@ -363,7 +447,11 @@ namespace ASPWeb.Pages
                     group.accessGroups.Remove(accessGroup.accessGroup);
                     db.Groups.Update(group);
                 }
-                
+                var relationsdb = db.RelationsControllersAccessGroups.Where(p => p.accessGroup == accessGroup.accessGroup).ToList();
+                foreach (var rel in relationsdb)
+                {
+                    db.RelationsControllersAccessGroups.Remove(rel);
+                }
                 db.AccessGroups.Remove(accessGroup);
                 db.SaveChanges();
                 return "true";
@@ -374,61 +462,59 @@ namespace ASPWeb.Pages
         // Удаление связи контроллер - группа доступа
         public void DeleteRelationsControllersAccessGroups(int id)
         {
-            using (ApplicationContext db = new ApplicationContext())
-            {
-                RelationsControllersAccessGroups? relation = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.Id == id);
-                int sn = relation.sn;                
+            RelationsControllersAccessGroups? relation = dbcontext.RelationsControllersAccessGroups.FirstOrDefault(p => p.Id == id);
+            int sn = relation.sn;
+            int relCount = dbcontext.RelationsControllersAccessGroups.Where(p => p.sn == sn && p.accessGroup == relation.accessGroup).Count();
+           
+            dbcontext.RelationsControllersAccessGroups.Remove(relation);
+            dbcontext.SaveChanges();
 
-                RelationsControllersAccessGroups? relationdb = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == sn && p.accessGroup == relation.accessGroup);
-                db.RelationsControllersAccessGroups.Remove(relation);
-                db.SaveChanges();
-                if (relationdb != null) 
+            var groupsdb = dbcontext.Groups.Where(p => p.accessGroups.Contains(relation.accessGroup)).ToList();
+            var groupNames = groupsdb.Select(c => c.group).ToList();
+            if (relCount == 1)
+            {
+                var workersdb = dbcontext.Workers.Where(p => p.personalCheck != 3 &&
+                    (p.accessGroups.Contains(relation.accessGroup) ||
+                    groupNames.Contains(p.group))).Include(p => p.cards).ToList();
+
+                int cardCount = 0;
+                List<int> controllersSn;
+                List<string> cardList = new List<string>();
+                foreach (var worker in workersdb)
                 {
-                    return;
-                }
-                var workersdb = db.Workers.ToList();
-                var groupsdb = db.Groups.Where(p => p.accessGroups.Contains(relationdb.accessGroup)).ToList();
-                List<string> accessGroupsLocal;
-                foreach(var worker in workersdb)
-                {
+                    // Поиск нового списков контролеров
+                    controllersSn = new List<int>();
                     if (worker.personalCheck == 1)
                     {
-                        if (!worker.accessGroups.Contains(relationdb.accessGroup))
-                        {
-                            continue;
-                        }        
-                        accessGroupsLocal = worker.accessGroups;
+                        var groupdb = groupsdb.FirstOrDefault(p => p.group == worker.group);
+                        controllersSn = GetControllersListByAccessGroups(groupdb.accessGroups);
                     }
-                    else
+                    if (worker.personalCheck == 2)
                     {
-                        if (!groupsdb.Exists(p => p.group == worker.group))
-                        {
-                            continue;
-                        }
-                        accessGroupsLocal = groupsdb.Find(p => p.group == worker.group).accessGroups;
+                        controllersSn = GetControllersListByAccessGroups(worker.accessGroups);
                     }
-                    bool flag = false;
-                    foreach (var accessGroup in accessGroupsLocal)
+
+                    if (!controllersSn.Contains(sn))
                     {
-                        var relationsdb = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.accessGroup == accessGroup && p.sn == sn);
-                        if (relationsdb != null)
+                        foreach (var card in worker.cards)
                         {
-                            flag = true;
-                            break;
-                        }
-                    }
-                    if (flag)
-                    {
-                        continue;
-                    }
+                            cardCount++;
+                            cardList.Add(card.card16);
+                            if (cardCount == 10)
+                            {
+                                DeleteCardFromControllerRange(sn, cardList);
+                                cardList = new List<string>();
+                                cardCount = 0;
+                            }
                     var cardsdb = db.Cards.Where(p => p.worker == worker.worker).ToList();
                     foreach (var card in cardsdb)
                     {
                         DeleteCardFromController(sn, card.card16);
+                        }
                     }
                 }
+                DeleteCardFromControllerRange(sn, cardList);
             }
-        }
 
 
         // Удаление карты из контроллера
@@ -453,7 +539,7 @@ namespace ASPWeb.Pages
                 db.Messages.Add(mesdb2);
 
                 db.SaveChanges();
-            }
+        }        
         }
 
 
@@ -507,16 +593,16 @@ namespace ASPWeb.Pages
             return Content(response);
         }
 
-        
+
         // Добавление сотрудника
-        public IActionResult OnGetAddWorker(string worker, string fio, string card, string position, string comment, string group)
+        public IActionResult OnGetAddWorker(int worker, string LastName, string FirstName, string FatherName, string card, string position, string comment, string group, string image)
         {
             if (HttpContext.Session.GetString("logged") != "true")
             {
                 return Content("Перезагрузите страницу");
             }
             string response = "true";
-            if (worker is null || fio is null || position is null || group is null)
+            if (LastName is null || group is null)
             {
                 return Content("Обязательные поля должны быть заполнены");
             }
@@ -526,21 +612,26 @@ namespace ASPWeb.Pages
             }
             using (ApplicationContext db = new ApplicationContext())
             {
-                Workers? workerdb = db.Workers.FirstOrDefault(p => p.worker == int.Parse(worker));
+                Workers? workerdb = db.Workers.FirstOrDefault(p => worker != 0 && p.worker == worker);
                 if (workerdb is not null)
                 {
                     return Content("Такой сотрудник уже есть");
                 }
                 if (card is not null)
                 {
-                    if (!card.StartsWith("Em-Marine"))
+                    if (card.StartsWith("Em-Marine"))
+                    {
+                        card = card.Substring(16);
+                    }
+                    string[] inputStr = card.Split(new char[] { ',' });
+                    if (inputStr[0].Length != 3 || inputStr[1].Length != 5 || !inputStr[0].All(char.IsDigit) || !inputStr[1].All(char.IsDigit))
                     {
                         return Content("неправильно введена карта");
                     }
                     Cards? carddb = db.Cards.FirstOrDefault(p => p.card == card);
                     if (carddb is not null)
                     {
-                        if (carddb.worker is not null)
+                        if (carddb.workerId is not null)
                         {
                             return Content("Эта карта уже занята");
                         }
@@ -556,16 +647,23 @@ namespace ASPWeb.Pages
                     }
                 }
                 workerdb = new Workers();
-                workerdb.worker = int.Parse(worker);
-                workerdb.fio = fio;
+                if (image != "empty")
+                {
+                    workerdb.Image = image;
+                }
+                workerdb.worker = worker;
+                workerdb.LastName = LastName;
+                workerdb.FirstName = FirstName;
+                workerdb.FatherName = FatherName;
                 workerdb.position = position;
                 workerdb.comment = comment;
                 workerdb.group = group;
-                workerdb.personalCheck = 0;
+                workerdb.personalCheck = 1;
                 workerdb.accessGroups = new List<string>();
                 db.Workers.Add(workerdb);
                 db.SaveChanges();
 
+                workerdb = db.Workers.OrderByDescending(p => p.Id).FirstOrDefault();
                 if (card is not null)
                 {
                     AddCardInWorker(workerdb, card);
@@ -574,9 +672,9 @@ namespace ASPWeb.Pages
             return Content(response);
         }
 
-        
+
         // Добавления карты сотруднику с помощью кнопки
-        public IActionResult OnGetAddCardInWorker(string card, int worker)
+        public IActionResult OnGetAddCardInWorker(string card, int workerId)
         {
             if (HttpContext.Session.GetString("logged") != "true")
             {
@@ -589,108 +687,85 @@ namespace ASPWeb.Pages
             }
             if (card.StartsWith("Em-Marine"))
             {
-                using (ApplicationContext db = new ApplicationContext())
-                {
-                    Cards? carddb = db.Cards.FirstOrDefault(p => p.card == card);
-                    Workers? workerdb = db.Workers.FirstOrDefault(p => p.worker == worker);
-                    if (workerdb is null)
-                    {
-                        return Content("Нет такого сотрудника");
-                    }
-                    if (carddb is not null)
-                    {
-                        if (carddb.worker is not null)
-                        {
-                            return Content("Эта карта уже занята");
-                        }
-                    }
-                    else
-                    {
-                        Cards newCard = new Cards();
-                        newCard.card = card;
-                        newCard.card16 = RefactCard(card);
-                        db.Cards.Add(newCard);
-                        db.SaveChanges();
-                        response = "newcard";
-                    }
+                card = card.Substring(16);
+            }
+            string[] inputStr = card.Split(new char[] { ',' });
+            if (inputStr[0].Length != 3 || inputStr[1].Length != 5 || !inputStr[0].All(char.IsDigit) || !inputStr[1].All(char.IsDigit))
+            {
+                return Content("неправильно введена карта");
+            }
 
-                    AddCardInWorker(workerdb, card);  // добавление карты в список карт работника
+            Cards? carddb = dbcontext.Cards.FirstOrDefault(p => p.card == card);
+            Workers? workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == workerId);
+            if (workerdb is null)
+            {
+                return Content("Нет такого сотрудника");
+            }
+            if (carddb is not null)
+            {
+                if (carddb.workerId is not null)
+                {
+                    return Content("Эта карта уже занята");
                 }
             }
             else
             {
-                response = "неправильно введена карта";
+                Cards newCard = new Cards();
+                newCard.card = card;
+                newCard.card16 = RefactCard(card);
+                dbcontext.Cards.Add(newCard);
+                dbcontext.SaveChanges();
+                response = "newcard";
             }
+
+            AddCardInWorker(workerdb, card);  // добавление карты в список карт работника
+
             return Content(response);
         }
 
-        
+
         // Убирания карты сотрудника с помощью кнопки
-        public IActionResult OnGetRemoveCardFromWorker(string cardId, int worker)
+        public IActionResult OnGetRemoveCardFromWorker(string card, int workerId)
         {
             if (HttpContext.Session.GetString("logged") != "true")
             {
                 return Content("Перезагрузите страницу");
             }
-            string response = "true";
-            if (cardId is null)
+            if (card is null) { return Content("Карта не выбрана"); }
+
+            Cards? carddb = dbcontext.Cards.FirstOrDefault(p => p.card == card);
+            if (carddb is null) { return Content("Нет такой карты"); }
+            if (carddb.workerId is null || carddb.workerId != workerId) { return Content("Карта не привязана к этому работнику"); }
+
+            carddb.workerId = null;
+            dbcontext.Cards.Update(carddb);
+            dbcontext.SaveChanges();
+
+            Workers? workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == workerId);
+            if (workerdb is null) { return Content("true"); }
+
+            // Поиск списка контролеров
+            List<int> controllersSn = new List<int>();
+            if (workerdb.personalCheck == 1)
             {
-                return Content("Карта не выбрана");
+                var groupsdb = dbcontext.Groups.FirstOrDefault(p => p.group == workerdb.group);
+                if (groupsdb is null) { return Content("true"); }
+                controllersSn = GetControllersListByAccessGroups(groupsdb.accessGroups);
             }
-            using (ApplicationContext db = new ApplicationContext())
+            if (workerdb.personalCheck == 2) { controllersSn = GetControllersListByAccessGroups(workerdb.accessGroups); }
+            if (workerdb.personalCheck == 3)
             {
-                int id = int.Parse(cardId);
-                Cards? carddb = db.Cards.FirstOrDefault(p => p.Id == id);
-                if (carddb is null)
-                {
-                    return Content("Нет такой карты");
-                }
-                if (carddb.worker is null || carddb.worker != worker)
-                {
-                    return Content("Карта не привязана к этому работнику");
-                }
-
-                carddb.worker = null;
-                db.Cards.Update(carddb);
-                db.SaveChanges();
-
-                Workers? workerdb = db.Workers.FirstOrDefault(p => p.worker == worker);
-                var controllersdb = db.Controllers.ToList();
-                if (workerdb is null || controllersdb.Count == 0)
-                {
-                    return Content("true");
-                }
-
-                List<string> accessGroupsLocal;
-                if (workerdb.personalCheck == 1)
-                {
-                    accessGroupsLocal = workerdb.accessGroups;
-                }
-                else
-                {
-                    var groupsdb = db.Groups.FirstOrDefault(p => p.group == workerdb.group);
-                    if (groupsdb is null)
-                    {
-                        return Content("true");
-                    }
-                    accessGroupsLocal = groupsdb.accessGroups;
-                }
-                if (accessGroupsLocal.Count == 0)
-                {
-                    return Content("true");
-                }
-
-                foreach (Controllers controller in controllersdb)
-                {
-                    var relationsdb = db.RelationsControllersAccessGroups.Where(p => p.sn == controller.sn && accessGroupsLocal.Contains(p.accessGroup)).ToList();
-                    if (relationsdb.Count > 0)
-                    {
-                        // Удаление из контроллера
-                        DeleteCardFromController(controller.sn, carddb.card16);
-                    }
-                }               
+                var accessPoints = dbcontext.RelationsControllersWorkers.Where(p => p.workerId == workerId).ToList();
+                controllersSn = GetControllersListByRelatinsControllerWorker(accessPoints);
             }
-            return Content(response);
+
+            var controllersdb = dbcontext.Controllers.Where(p => controllersSn.Contains(p.sn)).ToList();
+            foreach (var contr in controllersdb)
+            {
+                // Удаление карт из контроллера
+                DeleteCardFromController(contr.sn, carddb.card16);
+            }
+            return Content("true");
         }
 
 
@@ -703,36 +778,108 @@ namespace ASPWeb.Pages
             }
             var checkboxArr = JsonSerializer.Deserialize<string[]>(checkboxJson);
             var checkboxList = checkboxArr.ToList();
-            using (ApplicationContext db = new ApplicationContext())
-            {
-                Workers workerdb = db.Workers.FirstOrDefault(p => p.Id == workerId);
-                var accessGroupsOld = workerdb.accessGroups;
-                workerdb.accessGroups = checkboxList;
-                db.Workers.Update(workerdb);
-                db.SaveChanges();
 
-                if (workerdb.personalCheck == 0)
+            Workers workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == workerId);
+            var accessGroupsOld = workerdb.accessGroups;
+            workerdb.accessGroups = checkboxList;
+            dbcontext.Workers.Update(workerdb);
+            dbcontext.SaveChanges();
+
+            if (workerdb.personalCheck == 1 || workerdb.personalCheck == 3)
+            {
+                return Content("true");
+            }
+
+            var controllersSnOld = GetControllersListByAccessGroups(accessGroupsOld);
+            var controllersSnNew = GetControllersListByAccessGroups(workerdb.accessGroups);
+
+            var controllersdb = dbcontext.Controllers.ToList();
+            foreach (var contr in controllersdb)
+            {
+                // Удаление карт из контроллера
+                if (controllersSnOld.Contains(contr.sn) && !controllersSnNew.Contains(contr.sn))
+                {
+                    var cardsdb = dbcontext.Cards.Where(p => p.workerId == workerdb.Id);
+                    foreach (var card in cardsdb)
+                    {
+                        DeleteCardFromController(contr.sn, card.card16);
+                    }
+                if (accessGroupsLocal.Count == 0)
                 {
                     return Content("true");
                 }
-                var controllersdb = db.Controllers.ToList();
-                foreach (var controller in controllersdb)
+                // Добавление карт в контроллер
+                if (!controllersSnOld.Contains(contr.sn) && controllersSnNew.Contains(contr.sn))
                 {
-                    var relationOld = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == controller.sn && accessGroupsOld.Contains(p.accessGroup));
-                    var relationNew = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == controller.sn && checkboxList.Contains(p.accessGroup));
-                    // Удаление карт из контроллера
-                    if (relationOld is not null && relationNew is null)
+                    var cardsdb = dbcontext.Cards.Where(p => p.workerId == workerdb.Id);
+                    foreach (var card in cardsdb)
                     {
-                        var cardsdb = db.Cards.Where(p => p.worker == workerdb.worker);
+                        AddCardInController(contr.sn, card.card16);
+                    }
+                }
+            }
+            return Content("true");
+        }
+
+
+        // Изменение индивидуальных точек доступа
+        public IActionResult OnGetChangeAccessPoints(int workerId, string checkboxJson)
+        {
+            if (HttpContext.Session.GetString("logged") != "true")
+            {
+                return Content("Перезагрузите страницу");
+            }
+            var checkboxArr = JsonSerializer.Deserialize<string[]>(checkboxJson);
+            var checkboxList = checkboxArr.ToList();
+            var relationPointsOld = dbcontext.RelationsControllersWorkers.Where(p => p.workerId == workerId).ToList();
+            var relationPointsRemove = relationPointsOld;
+            var workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == workerId);
+
+            foreach (var checkbox in checkboxList)
+            {
+                string[] inputStr = checkbox.Split(new char[] { '_' });
+                int sn = int.Parse(inputStr[0]);
+                int reader = int.Parse(inputStr[1]);
+                var relationPoint = relationPointsOld.FirstOrDefault(p => p.sn == sn && p.reader == reader);
+                if (relationPoint == null)
+                {
+                    RelationsControllersWorkers rel = new RelationsControllersWorkers();
+                    rel.sn = sn;
+                    rel.workerId = workerId;
+                    rel.reader = reader;
+                    dbcontext.RelationsControllersWorkers.Add(rel);
+                }
+                else
+                {
+                    relationPointsRemove.Remove(relationPoint);
+                }
+            }
+            foreach (var relOld in relationPointsRemove)
+            {
+                dbcontext.RelationsControllersWorkers.Remove(relOld);
+            }
+            dbcontext.SaveChanges();
+
+            if (workerdb.personalCheck == 3)
+            {
+                var relationPointsNew = dbcontext.RelationsControllersWorkers.Where(p => p.workerId == workerId).ToList();
+                foreach (var controller in controllers)
+                {
+                    var relNew = relationPointsNew.FirstOrDefault(p => p.sn == controller.sn);
+                    var relOld = relationPointsOld.FirstOrDefault(p => p.sn == controller.sn);
+
+                    if (relOld is not null && relNew is null)
+                    {
+                        var cardsdb = dbcontext.Cards.Where(p => p.workerId == workerId);
                         foreach (var card in cardsdb)
                         {
                             DeleteCardFromController(controller.sn, card.card16);
                         }
                     }
                     // Добавление карт в контроллер
-                    if (relationOld is null && relationNew is not null)
+                    if (relOld is null && relNew is not null)
                     {
-                        var cardsdb = db.Cards.Where(p => p.worker == workerdb.worker);
+                        var cardsdb = dbcontext.Cards.Where(p => p.workerId == workerId);
                         foreach (var card in cardsdb)
                         {
                             AddCardInController(controller.sn, card.card16);
@@ -745,7 +892,7 @@ namespace ASPWeb.Pages
 
 
         // Изменение переключателя индивидуальных групп доступа
-        public IActionResult OnGetChangePersonalCheck(int workerId)
+        public IActionResult OnGetChangePersonalCheck(int workerId, int personalCheck)
         {
             if (HttpContext.Session.GetString("logged") != "true")
             {
@@ -754,21 +901,22 @@ namespace ASPWeb.Pages
             using (ApplicationContext db = new ApplicationContext())
             {
                 Workers workerdb = db.Workers.FirstOrDefault(p => p.Id == workerId);
+                if (workerdb.personalCheck == personalCheck)
+                {
+                    return Content("true");
+                }
                 var groupdb = db.Groups.FirstOrDefault(p => p.group == workerdb.group);
-                List<string> accessGroupNew;
-                List<string> accessGroupOld;
-                if (workerdb.personalCheck == 1)
-                {
-                    workerdb.personalCheck = 0;
-                    accessGroupNew = groupdb.accessGroups;
-                    accessGroupOld = workerdb.accessGroups;
-                }
-                else
-                {
-                    workerdb.personalCheck = 1;
-                    accessGroupOld = groupdb.accessGroups;
-                    accessGroupNew = workerdb.accessGroups;
-                }
+                List<int> controllersSnOld = new List<int>();
+                List<int> controllersSnNew = new List<int>();
+                if (workerdb.personalCheck == 1) { controllersSnOld = GetControllersListByAccessGroups(groupdb.accessGroups); }
+                if (workerdb.personalCheck == 2) { controllersSnOld = GetControllersListByAccessGroups(workerdb.accessGroups); }
+                if (workerdb.personalCheck == 3) { controllersSnOld = GetControllersListByRelatinsControllerWorker(db.RelationsControllersWorkers.Where(p => p.workerId == workerdb.Id).ToList()); }
+
+                if (personalCheck == 1) { controllersSnNew = GetControllersListByAccessGroups(groupdb.accessGroups); }
+                if (personalCheck == 2) { controllersSnNew = GetControllersListByAccessGroups(workerdb.accessGroups); }
+                if (personalCheck == 3) { controllersSnNew = GetControllersListByRelatinsControllerWorker(db.RelationsControllersWorkers.Where(p => p.workerId == workerdb.Id).ToList()); }
+
+                workerdb.personalCheck = personalCheck;
                 db.Workers.Update(workerdb);
                 db.SaveChanges();
 
@@ -779,18 +927,18 @@ namespace ASPWeb.Pages
                     var relationOld = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == contr.sn && accessGroupOld.Contains(p.accessGroup));
 
                     // Удаление карт из контроллера
-                    if (relationOld is not null && relationNew is null)
+                    if (controllersSnOld.Contains(contr.sn) && !controllersSnNew.Contains(contr.sn))
                     {
-                        var cardsdb = db.Cards.Where(p => p.worker == workerdb.worker);
+                        var cardsdb = db.Cards.Where(p => p.workerId == workerdb.Id);
                         foreach (var card in cardsdb)
                         {
                             DeleteCardFromController(contr.sn, card.card16);
                         }
                     }
                     // Добавление карт в контроллер
-                    if (relationOld is null && relationNew is not null)
+                    if (!controllersSnOld.Contains(contr.sn) && controllersSnNew.Contains(contr.sn))
                     {
-                        var cardsdb = db.Cards.Where(p => p.worker == workerdb.worker);
+                        var cardsdb = db.Cards.Where(p => p.workerId == workerdb.Id);
                         foreach (var card in cardsdb)
                         {
                             AddCardInController(contr.sn, card.card16);
@@ -802,73 +950,205 @@ namespace ASPWeb.Pages
         }
 
 
+        // Возвращает список серийных номеров контроллеров по списку групп доступа
+        public List<int> GetControllersListByAccessGroups(List<string> accessGroups)
+        {
+            var relations = dbcontext.RelationsControllersAccessGroups
+                .Where(p => accessGroups.Contains(p.accessGroup))
+                .Select(p => p.sn)
+                .Distinct()
+                .ToList();
+            return relations;
+        }
+
+        // Возвращает список серийных номеров контроллеров по списку точек доступа
+        public List<int> GetControllersListByRelatinsControllerWorker(List<RelationsControllersWorkers> relations)
+        {
+            List<int> result = new List<int>();
+            foreach (var rel in relations)
+            {
+                if (!result.Contains(rel.sn))
+                {
+                    result.Add(rel.sn);
+                }
+            }
+            return result;
+        }
+
+
+        // Возвращает список индивидуальных групп доступа сотрудника
+        public IActionResult OnGetShowModalAccessGroups(int workerId)
+        {
+            List<string> res = new List<string>();
+            Workers workerdb = _dataManager.workers.GetWorkerById(workerId);
+            foreach (var accessGroup in workerdb.accessGroups)
+            {
+                res.Add($"Modal_worker_access_groups_checkbox{accessGroup}");
+            }
+
+            return Content(JsonSerializer.Serialize(res));
+        }
+
+
+        // Возвращает список индивидуальных точек доступа сотрудника
+        public IActionResult OnGetShowModalAccessPoints(int workerId)
+        {
+            List<string> res = new List<string>();
+            var relationsdb = relationsControllersWorkers.Where(p => p.workerId == workerId).ToList();
+            foreach (var rel in relationsdb)
+            {
+                if (rel.reader == 1)
+                {
+                    res.Add($"Modal_worker_access_points_checkbox_in{rel.sn}");
+                }
+                else
+                {
+                    res.Add($"Modal_worker_access_points_checkbox_out{rel.sn}");
+                }
+            }
+            return Content(JsonSerializer.Serialize(res));
+        }
+
+
+        public IActionResult OnGetCarPartial(int id = default)
+        {
+            var worker = new Workers();
+            if (id != default)
+            {
+                worker = _dataManager.workers.GetWorkerById(id);
+            }
+            ViewDataDictionary customViewData = new ViewDataDictionary<Workers>(ViewData, worker);
+            customViewData["groups"] = _dataManager.groups.groups.ToList();
+            customViewData["emptyCards"] = emptyCards;
+            return new PartialViewResult
+            {
+                ViewName = "_WorkerEditPartial",
+                ViewData = customViewData,
+            };
+        }
+
+
         // Редактирование сотрудника
-        public IActionResult OnGetRedactWorker(int id, int workerNew, string fio, string position, string group, string comment)            
+        public IActionResult OnGetEditWorker(int id, int workerNew, string LastName, string FirstName, string FatherName, string position, string group, string comment, string image)
         {
             if (HttpContext.Session.GetString("logged") != "true")
             {
                 return Content("Перезагрузите страницу");
             }
-            _logger.LogInformation($"{workerNew}, {fio}, {position}, {group}");
-            if (workerNew == 0 || fio is null || position is null || group is null)
-            {
-                return Content("Обязательные поля должны быть заполнены");
-            }
-            using (ApplicationContext db = new ApplicationContext())
-            {
-                var workerdb = db.Workers.FirstOrDefault(p => p.Id == id);
-                var groupOld = db.Groups.FirstOrDefault(p => p.group == workerdb.group);
-                var groupNew = db.Groups.FirstOrDefault(p => p.group == group);
-                if (workerdb is null)
-                {
-                    return Content("Нет такого сотрудника");
-                }
-                if(workerdb.worker != workerNew && db.Workers.FirstOrDefault(p => p.worker == workerNew) is not null)
-                {
-                    return Content("Этот ИДН занят");
-                }
-                if (groupNew is null)
-                {
-                    return Content("Нет такой группы");
-                }
-                workerdb.worker = workerNew;
-                workerdb.fio = fio;
-                workerdb.position = position;
-                workerdb.group = group;
-                workerdb.comment = comment;
-                db.Workers.Update(workerdb);
-                db.SaveChanges();
 
-                if(workerdb.personalCheck == 1 || groupOld.group == group)
+            if (LastName is null || group is null)
+            {
+                return Content("Error! Обязательные поля должны быть заполнены");
+            }
+
+            Workers workerdb = _dataManager.workers.GetWorkerById(id);
+            var groupOld = dbcontext.Groups.FirstOrDefault(p => p.group == workerdb.group);
+            var groupNew = dbcontext.Groups.FirstOrDefault(p => p.group == group);
+            if (workerdb is null)
+            {
+                return Content("Error! Нет такого сотрудника");
+            }
+            if (workerdb.worker != workerNew && dbcontext.Workers.FirstOrDefault(p => p.worker == workerNew) is not null)
+            {
+                return Content("Error! Этот ИДН занят");
+            }
+            if (groupNew is null)
+            {
+                return Content("Error! Нет такой группы");
+            }
+            if (image != "empty") // замена фотографии с удалением старой
+            {
+                if (workerdb.Image != null)
                 {
-                    return Content("true");
+                    RemoveImage(workerdb.Image);
                 }
-                var accessGroupsOld = groupOld.accessGroups;
-                var accessGroupsNew = groupNew.accessGroups;
-                var controllersdb = db.Controllers.ToList();
-                foreach(var contr in controllersdb)
+                workerdb.Image = image;
+            }
+
+            workerdb.worker = workerNew;
+            workerdb.LastName = LastName;
+            workerdb.FirstName = FirstName;
+            workerdb.FatherName = FatherName;
+            workerdb.position = position;
+            workerdb.group = group;
+            workerdb.comment = comment;
+            dbcontext.Workers.Update(workerdb);
+            dbcontext.SaveChanges();
+
+            var worker = workers.FirstOrDefault(p => p.Id == id);
+            ViewDataDictionary customViewData = new ViewDataDictionary<Workers>(ViewData, worker);
+
+            if (workerdb.personalCheck != 1 || groupOld.group == group)
+            {               
+                return new PartialViewResult
                 {
-                    var relationOld = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == contr.sn && accessGroupsOld.Contains(p.accessGroup));
-                    var relationNew = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == contr.sn && accessGroupsNew.Contains(p.accessGroup));
-                    var cardsdb = db.Cards.Where(p => p.worker == workerNew);
-                    foreach (var card in cardsdb) {
-                        if (relationOld is null && relationNew is not null)
-                        {
-                            AddCardInController(contr.sn, card.card16);
-                        }
-                        if (relationOld is not null && relationNew is null)
-                        {
-                            DeleteCardFromController(contr.sn, card.card16);
-                        } 
+                    ViewName = "_WorkerTableTrPartial",
+                    ViewData = customViewData,
+                };
+            }
+
+            var controllersSnOld = GetControllersListByAccessGroups(groupOld.accessGroups);
+            var controllersSnNew = GetControllersListByAccessGroups(groupNew.accessGroups);
+
+            var controllersdb = dbcontext.Controllers.ToList();
+            foreach (var contr in controllersdb)
+            {
+                // Удаление карт из контроллера
+                if (controllersSnOld.Contains(contr.sn) && !controllersSnNew.Contains(contr.sn))
+                {
+                    var cardsdb = dbcontext.Cards.Where(p => p.workerId == workerdb.Id);
+                    foreach (var card in cardsdb)
+                    {
+                        DeleteCardFromController(contr.sn, card.card16);
+                    }
+                }
+                // Добавление карт в контроллер
+                if (!controllersSnOld.Contains(contr.sn) && controllersSnNew.Contains(contr.sn))
+                {
+                    var cardsdb = dbcontext.Cards.Where(p => p.workerId == workerdb.Id);
+                    foreach (var card in cardsdb)
+                    {
+                        AddCardInController(contr.sn, card.card16);
                     }
                 }
             }
+            
+            return new PartialViewResult
+            {
+                ViewName = "_WorkerTableTrPartial",
+                ViewData = customViewData,
+            };
+        }
+
+
+        // Удаление даты блокировки
+        public void OnGetDeleteLockDate(int id)
+        {
+            var workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == id);
+            workerdb.lockDate = null;
+            dbcontext.Workers.Update(workerdb);
+            dbcontext.SaveChanges(); 
+        }
+
+
+        // Добавление даты блокировки
+        public IActionResult OnGetAddLockDate(int id, string lockDate)
+        {
+            if (lockDate == null)
+            {
+                return Content("Задайте дату блокировки");
+            }
+
+            var workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == id);
+            workerdb.lockDate = lockDate;
+            dbcontext.Workers.Update(workerdb);
+            dbcontext.SaveChanges();
             return Content("true");
         }
 
 
         // Добавление карты
-        public IActionResult OnGetAddCard(string card, string worker)
+        public IActionResult OnGetAddCard(string card, int workerId)
         {
             if (HttpContext.Session.GetString("logged") != "true")
             {
@@ -881,35 +1161,40 @@ namespace ASPWeb.Pages
             }
             if (card.StartsWith("Em-Marine"))
             {
-                Cards newCard = new Cards();
-                newCard.card = card;
-                newCard.card16 = RefactCard(card);
-                using (ApplicationContext db = new ApplicationContext())
-                {
-                    Cards? carddb = db.Cards.FirstOrDefault(p => p.card == card);
+                card = card.Substring(16);
+            }
+            string[] inputStr = card.Split(new char[] { ',' });
+            if (inputStr[0].Length != 3 || inputStr[1].Length != 5 || !inputStr[0].All(char.IsDigit) || !inputStr[1].All(char.IsDigit))
+            {
+                return Content("неправильно введена карта");
+            }
+            Cards newCard = new Cards();
+            newCard.card = card;
+            newCard.card16 = RefactCard(card);
+            using (ApplicationContext db = new ApplicationContext())
+            {
+                Cards? carddb = db.Cards.FirstOrDefault(p => p.card == card);
                     Workers? workerdb = new Workers();
-                    if (carddb is not null)
-                    {
-                        if (carddb.worker is not null)
-                        {
-                            return Content("Эта карта уже занята");
-                        }
+                if (carddb is not null)
+                {
+                    return Content("Такая карта уже есть");
+                }
                     }
                     else
                     {
-                        db.Cards.Add(newCard);
-                        db.SaveChanges();
-                    }
-                    if (worker is not null)     // проверка есть ли такой работник в БД
+                db.Cards.Add(newCard);
+                db.SaveChanges();
+
+                if (workerId != 0)
+                {
+                    Workers workerdb = _dataManager.workers.GetWorkerById(workerId);
+                    if (workerdb is null)
                     {
-                        workerdb = db.Workers.FirstOrDefault(p => p.worker == int.Parse(worker));
-                        if (workerdb is null)
-                        {
-                            return Content("Нет такого сотрудника");
-                        }
-                        AddCardInWorker(workerdb, card);  // добавление карты в список карт работника
+                        return Content("Нет такого сотрудника");
                     }
+                    AddCardInWorker(workerdb, card);  // добавление карты в список карт работника
                 }
+            }
             }
             else
             {
@@ -929,26 +1214,30 @@ namespace ASPWeb.Pages
             using (ApplicationContext db = new ApplicationContext())
             {
                 Cards carddb = db.Cards.FirstOrDefault(p => p.card == card);
-                carddb.worker = workerdb.worker;
+                carddb.workerId = workerdb.Id;
                 db.Cards.Update(carddb);
                 db.SaveChanges();
 
-                List<string> accessGroups;
+                // Поиск списка контролеров
+                List<int> controllersSn = new List<int>();
                 if (workerdb.personalCheck == 1)
                 {
-                    accessGroups = workerdb.accessGroups;
+                    var groupsdb = dbcontext.Groups.FirstOrDefault(p => p.group == workerdb.group);
+                    if (groupsdb is null) { return; }
+                    controllersSn = GetControllersListByAccessGroups(groupsdb.accessGroups);
                 }
-                else
+                if (workerdb.personalCheck == 2) { controllersSn = GetControllersListByAccessGroups(workerdb.accessGroups); }
+                if (workerdb.personalCheck == 3)
                 {
-                    var groupdb = db.Groups.FirstOrDefault(p => p.group == workerdb.group);
-                    accessGroups = groupdb.accessGroups;
+                    var accessPoints = dbcontext.RelationsControllersWorkers.Where(p => p.workerId == workerdb.Id).ToList();
+                    controllersSn = GetControllersListByRelatinsControllerWorker(accessPoints);
                 }
 
-                // добавление карты в контроллер
-                var controllers = db.Controllers.ToList();
-                if (controllers.Count == 0)
+                var controllersdb = dbcontext.Controllers.Where(p => controllersSn.Contains(p.sn)).ToList();
+                foreach (var contr in controllersdb)
                 {
-                    return;
+                    // Добавление карты в контроллер
+                    AddCardInController(contr.sn, carddb.card16);
                 }
                 foreach (Controllers controller in controllers)
                 {
@@ -956,12 +1245,12 @@ namespace ASPWeb.Pages
                     if (relationsdb.Count > 0)
                     {
                         AddCardInController(controller.sn, carddb.card16);
-                    }
-                }
+            }
+        }
             }
         }
 
-        
+
         // добавление группы
         public IActionResult OnGetAddGroup(string group)
         {
@@ -985,7 +1274,7 @@ namespace ASPWeb.Pages
             }
         }
 
-        
+
         // Показывает форму добавления группы доступа в группу
         public IActionResult OnGetAccessGroupInAddGroupForm(int groupId)
         {
@@ -996,11 +1285,11 @@ namespace ASPWeb.Pages
             using (ApplicationContext db = new ApplicationContext())
             {
                 Groups? groupdb = db.Groups.FirstOrDefault(p => p.Id == groupId);
-                return Content(JsonSerializer.Serialize(groupdb.accessGroups));                
+                return Content(JsonSerializer.Serialize(groupdb.accessGroups));
             }
         }
 
-        
+
         // Добавление группы доступа в группу
         public IActionResult OnGetAddAccessGroupInGroup(int groupId, string accessGroup)
         {
@@ -1012,47 +1301,58 @@ namespace ASPWeb.Pages
             {
                 return Content("Выберите группу доступа");
             }
-            string response = "true";
-            using (ApplicationContext db = new ApplicationContext())
-            {
-                Groups? groupdb = db.Groups.FirstOrDefault(p => p.Id == groupId);
-                AccessGroups? accessGroupdb = db.AccessGroups.FirstOrDefault(p => p.accessGroup == accessGroup);
-                if (groupdb is null)
-                {
-                    return Content("Нет такой группы");
-                }
-                if (accessGroupdb is null)
-                {
-                    return Content("Нет такой группы доступа");
-                }                
 
-                var workersdb = db.Workers.Where(p => p.group == groupdb.group && p.personalCheck == 0).ToList();
-                var controllersdb = db.Controllers.ToList();
-                foreach (var controller in controllersdb)
+            Groups? groupdb = dbcontext.Groups.FirstOrDefault(p => p.Id == groupId);
+            AccessGroups? accessGroupdb = dbcontext.AccessGroups.FirstOrDefault(p => p.accessGroup == accessGroup);
+            if (groupdb is null)
+            {
+                return Content("Нет такой группы");
+            }
+            if (accessGroupdb is null)
+            {
+                return Content("Нет такой группы доступа");
+            }
+
+            var controllersSnOld = GetControllersListByAccessGroups(groupdb.accessGroups);
+            groupdb.accessGroups.Add(accessGroupdb.accessGroup);
+            dbcontext.Groups.Update(groupdb);
+            dbcontext.SaveChanges();
+
+            var controllersSnNew = GetControllersListByAccessGroups(groupdb.accessGroups);
+            var workersdb = dbcontext.Workers.Where(p => p.group == groupdb.group && p.personalCheck == 1).ToList();
+            var controllersdb = dbcontext.Controllers.ToList();
+            foreach (var controller in controllersdb)
+            {
+
+                if (!controllersSnOld.Contains(controller.sn) && controllersSnNew.Contains(controller.sn))
                 {
-                    var relationNew = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == controller.sn && p.accessGroup == accessGroupdb.accessGroup);
-                    var relationOld = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == controller.sn && groupdb.accessGroups.Contains(p.accessGroup));
-                    if (relationNew is not null && relationOld is null)
+                    int cardCount = 0;
+                    List<string> cardsList = new List<string>();
+                    foreach (var worker in workersdb)
                     {
-                        foreach (var worker in workersdb)
+                        var cardsdb = dbcontext.Cards.Where(p => p.workerId == worker.Id).ToList();
+                        foreach (var card in cardsdb)
                         {
-                            var cardsdb = db.Cards.Where(p => p.worker == worker.worker).ToList();
-                            foreach (var card in cardsdb)
+                            cardCount++;
+                            cardsList.Add(card.card16);
+                            if (cardCount == 10)
                             {
-                                AddCardInController(controller.sn, card.card16);
+                                AddCardInControllerRange(controller.sn, cardsList);
+                                cardsList = new List<string>();
+                                cardCount = 0;
                             }
                         }
                     }
-
+                    AddCardInControllerRange(controller.sn, cardsList);
                 }
                 groupdb.accessGroups.Add(accessGroupdb.accessGroup);
                 db.Groups.Update(groupdb);
                 db.SaveChanges();
             }
-            return Content(response);
+            return Content("true");
         }
 
-        
+
         // Убирание группы доступа из группы
         public IActionResult OnGetRemoveAccessGroupFromGroup(int groupId, string accessGroup)
         {
@@ -1060,47 +1360,53 @@ namespace ASPWeb.Pages
             {
                 return Content("Перезагрузите страницу");
             }
-            string response = "true";
-            using (ApplicationContext db = new ApplicationContext())
-            {
-                Groups? groupdb = db.Groups.FirstOrDefault(p => p.Id == groupId);
-                if (groupdb is null)
-                {
-                    return Content("Нет такой группы");
-                }
-                if (!groupdb.accessGroups.Contains(accessGroup))
-                {
-                    return Content("Нет такой группы доступа");
-                }
-                groupdb.accessGroups.Remove(accessGroup);
-                db.Groups.Update(groupdb);
-                db.SaveChanges();
 
-                var workersdb = db.Workers.Where(p => p.group == groupdb.group && p.personalCheck == 0).ToList();
-                if (workersdb.Count == 0)
+            Groups? groupdb = dbcontext.Groups.FirstOrDefault(p => p.Id == groupId);
+            AccessGroups? accessGroupdb = dbcontext.AccessGroups.FirstOrDefault(p => p.accessGroup == accessGroup);
+            if (groupdb is null)
+            {
+                return Content("Нет такой группы");
+            }
+            if (!groupdb.accessGroups.Contains(accessGroup) || accessGroupdb is null)
+            {
+                return Content("Нет такой группы доступа");
+            }
+
+            var controllersSnOld = GetControllersListByAccessGroups(groupdb.accessGroups);
+            groupdb.accessGroups.Remove(accessGroup);
+            dbcontext.Groups.Update(groupdb);
+            dbcontext.SaveChanges();
+
+            var controllersSnNew = GetControllersListByAccessGroups(groupdb.accessGroups);
+            var workersdb = dbcontext.Workers.Where(p => p.group == groupdb.group && p.personalCheck == 1).ToList();
+            var controllersdb = dbcontext.Controllers.ToList();
+            foreach (var controller in controllersdb)
+            {
+                if (controllersSnOld.Contains(controller.sn) && !controllersSnNew.Contains(controller.sn))
                 {
-                    return Content("true");
-                }
-                var controllersdb = db.Controllers.ToList();
-                foreach (var controller in controllersdb)
-                {
-                    var relationOld = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == controller.sn && p.accessGroup == accessGroup);
-                    var relationNew = db.RelationsControllersAccessGroups.FirstOrDefault(p => p.sn == controller.sn && groupdb.accessGroups.Contains(p.accessGroup));
-                    if (relationOld is null || relationNew is not null)
-                    {
-                        continue;
-                    }
+                    int cardCount = 0;
+                    List<string> cardList = new List<string>();
+                    // Удаление карт из контроллера
                     foreach (var worker in workersdb)
                     {
-                        var cardsdb = db.Cards.Where(p => p.worker == worker.worker).ToList();
+                        var cardsdb = dbcontext.Cards.Where(p => p.workerId == worker.Id).ToList();
                         foreach (var card in cardsdb)
                         {
-                            DeleteCardFromController(controller.sn, card.card16);
-                        }                        
+                            cardCount++;
+                            cardList.Add(card.card16);
+                            if (cardCount == 10)
+                            {
+                                DeleteCardFromControllerRange(controller.sn, cardList);
+                                cardList = new List<string>();
+                                cardCount = 0;
+                            }
+                        }
                     }
+                    DeleteCardFromControllerRange(controller.sn, cardList);
                 }
-            }
             return Content(response);
+            }
+            return Content("true");
         }
 
 
@@ -1127,7 +1433,7 @@ namespace ASPWeb.Pages
             return Content(response);
         }
 
-        
+
         // добавление связи контроллер - группа доступа
         public IActionResult OnGetAddRelationsControllersAccessGroups(string? sn, string? accessGroup, bool cbIn, bool cbOut)
         {
@@ -1148,58 +1454,69 @@ namespace ASPWeb.Pages
             {
                 return Content("Серийный номер контроллера должен быть числом");
             }
+
             var snInt = int.Parse(sn);
-            using (ApplicationContext db = new ApplicationContext())
+            Controllers? controllerdb = dbcontext.Controllers.FirstOrDefault(p => p.sn == snInt);
+            AccessGroups? accessGroupdb = dbcontext.AccessGroups.FirstOrDefault(p => p.accessGroup == accessGroup);
+            if (controllerdb is null)
             {
-                Controllers? controllerdb = db.Controllers.FirstOrDefault(p => p.sn == snInt);
-                AccessGroups? accessGroupdb = db.AccessGroups.FirstOrDefault(p => p.accessGroup == accessGroup);
-                if (controllerdb is null)
-                {
-                    return Content("Нет такого контроллера");
-                }
-                if (accessGroupdb is null)
-                {
-                    return Content("Нет такой группы доступа");
-                }
+                return Content("Нет такого контроллера");
+            }
+            if (accessGroupdb is null)
+            {
+                return Content("Нет такой группы доступа");
+            }
 
-                List<RelationsControllersAccessGroups> relations = db.RelationsControllersAccessGroups.Where(p => p.sn == snInt && p.accessGroup == accessGroup).ToList();
-               
-                if (relations.Count == 2)
-                {
-                    return Content("Оба входа контроллера уже привязаны к этой группе доступа");
-                }
-                foreach(var rel in relations)
-                {
-                    if (cbIn && rel.reader == 1)
-                    {
-                        return Content("Вход контроллера уже привязаны к этой группе доступа");
-                    }
-                    if (cbOut && rel.reader == 2)
-                    {
-                        return Content("Выход контроллера уже привязаны к этой группе доступа");
-                    }
-                }
+            List<RelationsControllersAccessGroups> relations = dbcontext.RelationsControllersAccessGroups.Where(p => p.sn == snInt && p.accessGroup == accessGroup).ToList();
+            if (relations != null) relations.ToList();
 
-                if (relations.Count == 0)
+            if (relations.Count == 2)
+            {
+                return Content("Оба входа контроллера уже привязаны к этой группе доступа");
+            }
+            foreach (var rel in relations)
+            {
+                if (cbIn && rel.reader == 1)
                 {
-                    var workersdb = db.Workers.ToList();
-                    var groupsdb = db.Groups.Where(p => p.accessGroups.Contains(accessGroup)).ToList();
-                    List<string> accessGroupsLocal;
-                    foreach (var worker in workersdb)
+                    return Content("Вход контроллера уже привязаны к этой группе доступа");
+                }
+                if (cbOut && rel.reader == 2)
+                {
+                    return Content("Выход контроллера уже привязаны к этой группе доступа");
+                }
+            }
+
+            if (relations.Count == 0)
+            {
+                var workersdb = dbcontext.Workers.Where(p => p.personalCheck != 3).Include(c => c.cards).ToList();
+                var groupsdb = dbcontext.Groups.Where(p => p.accessGroups.Contains(accessGroup)).ToList();
+                int cardCount = 0;
+                List<string> cardList = new List<string>();
+                foreach (var worker in workersdb)
+                {
+                    // Поиск списка контролеров
+                    var controllersSn = new List<int>();                   
+                    if (worker.personalCheck == 1 && groupsdb.Exists(p => p.group == worker.group))
                     {
-                        if (worker.personalCheck == 1)
+                        controllersSn = GetControllersListByAccessGroups(groupsdb.FirstOrDefault(p => p.group == worker.group).accessGroups);
+                    }
+                    if (worker.personalCheck == 2 && worker.accessGroups.Contains(accessGroup))
+                    {
+                        controllersSn = GetControllersListByAccessGroups(worker.accessGroups);
+                    }
+
+                    if (controllersSn.Contains(snInt))
+                    {
+                        // Добавление карт в контроллер
+                        foreach (var card in worker.cards)
                         {
-                            if (!worker.accessGroups.Contains(accessGroup))
+                            cardCount++;
+                            cardList.Add(card.card16);
+                            if (cardCount == 10)
                             {
-                                continue;
-                            }
-                            accessGroupsLocal = worker.accessGroups;
-                        }
-                        else
-                        {
-                            if (!groupsdb.Exists(p => p.group == worker.group))
-                            {
-                                continue;
+                                AddCardInControllerRange(snInt, cardList);
+                                cardList = new List<string>();
+                                cardCount = 0;
                             }
                             accessGroupsLocal = groupsdb.Find(p => p.group == worker.group).accessGroups;
                         }
@@ -1207,37 +1524,158 @@ namespace ASPWeb.Pages
                         if (relationNew != null)
                         {
                             continue;
-                        }
+                    }                    
                         var cardsdb = db.Cards.Where(p => p.worker == worker.worker).ToList();
                         foreach (var card in cardsdb)
                         {
                             AddCardInController(snInt, card.card16);
-                        }
-                    }
+                }
+                AddCardInControllerRange(snInt, cardList);
+            }
 
                 }
 
-                if (cbIn)
-                {
-                    RelationsControllersAccessGroups newRelation = new RelationsControllersAccessGroups();
-                    newRelation.sn = snInt;
-                    newRelation.accessGroup = accessGroup;
-                    newRelation.reader = 1;
-                    db.RelationsControllersAccessGroups.Add(newRelation);
-                    db.SaveChanges();
-                }
-                if (cbOut)
-                {
-                    RelationsControllersAccessGroups newRelation = new RelationsControllersAccessGroups();
-                    newRelation.sn = snInt;
-                    newRelation.accessGroup = accessGroup;
-                    newRelation.reader = 2;
-                    db.RelationsControllersAccessGroups.Add(newRelation);
-                    db.SaveChanges();
-                }                
+            if (cbIn)
+            {
+                RelationsControllersAccessGroups newRelation = new RelationsControllersAccessGroups();
+                newRelation.sn = snInt;
+                newRelation.accessGroup = accessGroup;
+                newRelation.reader = 1;
+                dbcontext.RelationsControllersAccessGroups.Add(newRelation);
+                dbcontext.SaveChanges();
+            }
+            if (cbOut)
+            {
+                RelationsControllersAccessGroups newRelation = new RelationsControllersAccessGroups();
+                newRelation.sn = snInt;
+                newRelation.accessGroup = accessGroup;
+                newRelation.reader = 2;
+                dbcontext.RelationsControllersAccessGroups.Add(newRelation);
+                dbcontext.SaveChanges();
             }
             return Content(response);
-        }        
+        }
+
+
+        // Удаление карты из контроллера
+        public void DeleteCardFromController(int sn, string card16)
+        {
+            using (ApplicationContext db = new ApplicationContext())
+            {
+                MessagesDB mesdb = new MessagesDB
+                {
+                    operation = "del_cards",
+                    card = card16
+                };
+
+                MessagesDB mesdb2 = new MessagesDB
+                {
+                    operation = "wait"
+                };
+
+                mesdb.sn = sn;
+                db.Messages.Add(mesdb);
+                mesdb2.sn = sn;
+                db.Messages.Add(mesdb2);
+
+                db.SaveChanges();
+            }
+        }
+
+        // Удаление списка карт из контроллера
+        public void DeleteCardFromControllerRange(int sn, List<string> cards16)
+        {
+            using (ApplicationContext db = new ApplicationContext())
+            {
+                MessagesDB mesdb = new MessagesDB
+                {
+                    operation = "del_cards_range",
+                    card = JsonSerializer.Serialize(cards16)
+                };
+
+                mesdb.sn = sn;
+                db.Messages.Add(mesdb);
+
+                db.SaveChanges();
+            }
+        }
+
+
+        // Удаление всех карт из контроллера
+        public void OnGetDeleteAllCardFromController(string checkboxJson)
+        {
+            var snList = JsonSerializer.Deserialize<string[]>(checkboxJson);
+            foreach (var sn in snList)
+            {
+                using (ApplicationContext db = new ApplicationContext())
+                {
+                    MessagesDB mesdb = new MessagesDB
+                    {
+                        operation = "clear_cards",
+
+                    };
+
+                    mesdb.sn = int.Parse(sn);
+                    db.Messages.Add(mesdb);
+                    db.SaveChanges();
+                }
+            }
+        }
+
+
+        // Добавление всех карт в контроллер
+        public void OnGetAddAllCardInController(string checkboxJson)
+        {
+            var snList = JsonSerializer.Deserialize<string[]>(checkboxJson);
+            foreach (var snStr in snList)
+            {
+                int sn = int.Parse(snStr);
+                var workersdb = dbcontext.Workers.Include(p => p.cards).ToList();
+                var accessGroupsdb = dbcontext.RelationsControllersAccessGroups.Where(p => p.sn == sn).Select(p => p.accessGroup).Distinct().ToList();
+                var relationsWorkersdb = dbcontext.RelationsControllersWorkers.Where(p => p.sn == sn).ToList();
+                var groupsdb = dbcontext.Groups.ToList();
+
+                int cardCount = 0;
+                List<string> cardList = new List<string>();
+                foreach (var worker in workersdb)
+                {
+                    bool flag = false;
+                    if (worker.personalCheck == 1)
+                    {
+                        var groupdb = groupsdb.FirstOrDefault(p => p.group == worker.group);
+                        if (groupdb.accessGroups.Intersect(accessGroupsdb).Count() > 0)
+                        {
+                            flag = true;
+                        }
+                    }
+                    if (worker.personalCheck == 2 && worker.accessGroups.Intersect(accessGroupsdb).Count() > 0)
+                    {
+                        flag = true;
+                    }
+                    if (worker.personalCheck == 3 && relationsWorkersdb.FirstOrDefault(p => p.workerId == worker.Id) is not null)
+                    {
+                        flag = true;
+                    }
+
+                    if (flag)
+                    {
+                        foreach (var card in worker.cards)
+                        {
+                            cardCount++;
+                            cardList.Add(card.card16);
+                            if (cardCount == 10)
+                            {
+                                AddCardInControllerRange(sn, cardList);
+                                cardList = new List<string>();
+                                cardCount = 0;
+                            }
+                        }
+                    }
+                }
+                _logger.LogInformation(JsonSerializer.Serialize(cardList));
+                AddCardInControllerRange(sn, cardList);
+            }
+        }
 
 
         // добавление карты в контроллер
@@ -1267,29 +1705,32 @@ namespace ASPWeb.Pages
         }
 
 
-        // Считывание карты
-        public IActionResult OnGetReadCard()
+        // добавление списка карт в контроллер
+        public void AddCardInControllerRange(int sn, List<string> cards16)
         {
-            if (HttpContext.Session.GetString("logged") != "true")
+            using (ApplicationContext db = new ApplicationContext())
             {
-                return Content("Перезагрузите страницу");
+                MessagesDB mesdb = new MessagesDB
+                {
+                    operation = "add_cards_range",
+                    card = JsonSerializer.Serialize(cards16),
+                    flag = 0,
+                    tz = 255
+                };
+
+                mesdb.sn = sn;
+                db.Messages.Add(mesdb);
+
+                db.SaveChanges();
             }
-            SerialPort serialPort = new SerialPort("COM3", 9600, Parity.None, 8, StopBits.One);
-            serialPort.Handshake = Handshake.None;
-
-            serialPort.Open();
-            string fullInputString = serialPort.ReadLine();
-            serialPort.Close();
-
-            return Content(fullInputString);
         }
 
 
         // Преобразование кода карты в шестнадцатеричный вид
         public string RefactCard(string fullInputString)
         {
-            string resultCard = "000000"; //+ fullInputString.Substring(10, 4);
-            string secondPath = fullInputString.Substring(16);
+            string resultCard = "000000";
+            string secondPath = fullInputString;
             string[] str = secondPath.Split(new char[] { ',' });
             string firstBits = Convert.ToString(int.Parse(str[0]), 16).ToUpper();
             string secondBits = Convert.ToString(int.Parse(str[1]), 16).ToUpper();
@@ -1315,23 +1756,24 @@ namespace ASPWeb.Pages
             }
             using (ApplicationContext db = new ApplicationContext())
             {
-                List<int> res = new List<int>();
-                var filterCards = db.Cards.ToList();
-                if (filter is null)
-                {
-                    return Content("false");
-                } 
-                foreach (Cards? filterCard in filterCards)
-                {               
-                    if (filterCard.card.IndexOf(filter) != -1 || 
-                        filterCard.card16.IndexOf(filter) != -1 || 
-                        (filterCard.worker is not null && filterCard.worker.ToString().IndexOf(filter) != -1))
-                    {
-                        res.Add(filterCard.Id);
-                    }       
-                }
-                return Content(JsonSerializer.Serialize(res));
+            List<int> res = new List<int>();
+            var filterCards = dbcontext.Cards.ToList();
+            if (filter is null)
+            {
+                return Content("false");
             }
+            var workersdb = dbcontext.Workers.Where(p => (p.LastName + " " + p.FirstName + " " + p.FatherName).ToUpper().IndexOf(filter.ToUpper()) != -1).ToList();
+            foreach (Cards? filterCard in filterCards)
+            {
+                if (filterCard.card.IndexOf(filter) != -1 ||
+                    filterCard.card16.IndexOf(filter) != -1 ||
+                    (filterCard.workerId is not null && (filterCard.workerId.ToString().IndexOf(filter) != -1 || workersdb.Exists(p => p.Id == filterCard.workerId))))
+                {
+                    res.Add(filterCard.Id);
+                }
+            }
+            return Content(JsonSerializer.Serialize(res));
+        }
         }
 
 
@@ -1353,17 +1795,38 @@ namespace ASPWeb.Pages
                 }
                 foreach (Workers? filterWorker in filterWorkers)
                 {
-                    if (filterWorker.worker.ToString().IndexOf(filter) != -1 ||
-                        filterWorker.fio.IndexOf(filter) != -1 ||
-                        filterWorker.position.IndexOf(filter) != -1 ||
-                        filterWorker.group.IndexOf(filter) != -1)
+                    if (filterWorker.Id.ToString().IndexOf(filter) != -1 ||
+                        filterWorker.worker.ToString().IndexOf(filter) != -1 ||
+                        System.String.Concat(new string[] { filterWorker.LastName, " ", filterWorker.FirstName, " ", filterWorker.FatherName }).ToUpper().IndexOf(filter.ToUpper()) != -1 ||
+                        (filterWorker.position is not null && filterWorker.position.ToUpper().IndexOf(filter.ToUpper()) != -1) ||
+                        filterWorker.group.ToUpper().IndexOf(filter.ToUpper()) != -1 ||
+                        (filterWorker.comment is not null && filterWorker.comment.ToUpper().IndexOf(filter.ToUpper()) != -1))
                     {
                         var group = db.Groups.FirstOrDefault(p => p.group == filterWorker.group);
-                        res.Add(filterWorker.Id.ToString()+";"+ group.Id);
+                        res.Add(filterWorker.Id.ToString() + ";" + group.Id);
                     }
                 }
                 return Content(JsonSerializer.Serialize(res));
             }
+        }
+
+
+        // Поиск сотрудников с комментариями
+        public IActionResult OnGetFindComments()
+        {
+            List<string> res = new List<string>();
+
+            foreach (Workers worker in workers)
+            {
+
+                if (worker.comment != "" && worker.comment != null)
+                {
+                    var group = groups.FirstOrDefault(p => p.group == worker.group);
+                    res.Add(worker.Id.ToString() + ";" + group.Id);
+                }
+            }
+            return Content(JsonSerializer.Serialize(res));
+
         }
 
 
@@ -1384,14 +1847,390 @@ namespace ASPWeb.Pages
                 }
                 foreach (RelationsControllersAccessGroups? filterRelation in filterRelations)
                 {
+                    var controllerName = controllers.FirstOrDefault(p => p.sn == filterRelation.sn).name;
                     if (filterRelation.sn.ToString().IndexOf(filter) != -1 ||
-                        filterRelation.accessGroup.IndexOf(filter) != -1)
+                        filterRelation.accessGroup.ToUpper().IndexOf(filter.ToUpper()) != -1 ||
+                        (controllerName != null && controllerName.ToUpper().IndexOf(filter.ToUpper()) != -1))
                     {
                         res.Add(filterRelation.Id);
                     }
                 }
                 return Content(JsonSerializer.Serialize(res));
             }
-        }      
+        }
+
+
+
+        public IActionResult OnGetFilterEvents(string snCheckboxJson, int workerId, string fio, string group, string dateBeg, string dateEnd)
+        {
+            var snList = JsonSerializer.Deserialize<List<string>>(snCheckboxJson);
+            List<EventsWeb> res = GetEventsWebByFilter(snList, workerId, fio, group, dateBeg, dateEnd).OrderByDescending(p => p.Id).ToList();
+
+            ViewDataDictionary customViewData = new ViewDataDictionary<List<EventsWeb>>(ViewData, res);
+            return new PartialViewResult
+            {
+                ViewName = "_EventsFilterPartial",
+                ViewData = customViewData,
+            };
+        }
+
+        public List<EventsWeb> GetEventsWebByFilter(List<string> snList, int workerId, string fio, string group, string dateBeg, string dateEnd)
+        {
+            if (snList.Count == 0 && workerId == 0 && fio == null && dateBeg == null && dateEnd == null)
+            { dateBeg = DateTime.Now.AddDays(-1).ToString(); }
+            List<EventsWeb> res = new List<EventsWeb>();
+            var eventsdb = dbcontext.Events.Include(c => c.worker).ToList();
+            foreach (var ev in eventsdb)
+            {
+                bool flag = true;
+                if (snList.Count != 0 && !snList.Contains(ev.sn.ToString()))
+                {
+                    flag = false;
+                }
+                if (workerId != 0 && ev.workerId != workerId)
+                {
+                    flag = false;
+                }                
+                if (fio != null)
+                {
+                    var workerdb = ev.worker;
+                    if (workerdb == null || System.String.Concat(new string[] { workerdb.LastName, " ", workerdb.FirstName, " ", workerdb.FatherName }).ToUpper().IndexOf(fio.ToUpper()) == -1)
+                    {
+                        flag = false;
+                    }
+                }
+                if (group != null && (ev.worker == null || ev.worker.group != group))
+                {
+                    flag = false;
+                }
+                if (dateBeg != null && DateTime.Parse(dateBeg) > ev.dateTime)
+                {
+                    flag = false;
+                }
+                if (dateEnd != null && DateTime.Parse(dateEnd).AddDays(1) < ev.dateTime)
+                {
+                    flag = false;
+                }
+                if (flag)
+                {
+                    var controllerdb = dbcontext.Controllers.FirstOrDefault(p => p.sn == ev.sn);
+                    var eventWeb = new EventsWeb();
+                    eventWeb.Id = ev.Id;
+                    if (controllerdb != null && controllerdb.name is not null)
+                    {
+                        eventWeb.name = controllerdb.name;
+                    }
+                    else
+                    {
+                        eventWeb.name = ev.sn.ToString();
+                    }
+                    var eventCode = eventCodes.FirstOrDefault(p => p.eventCode == ev.Event);
+                    if (eventCode is null)
+                    {
+                        eventWeb.Event = ev.Event.ToString();
+                    }
+                    else
+                    {
+                        eventWeb.Event = eventCode.Event;
+                    }
+                    eventWeb.card = ev.card;
+                    eventWeb.flag = ev.flag;
+                    eventWeb.time = ev.dateTime.ToString();
+                    eventWeb.workerId = ev.workerId;
+                    var workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == ev.workerId);
+                    if (workerdb != null)
+                    {
+                        eventWeb.fio = System.String.Concat(new string[] { workerdb.LastName, " ", workerdb.FirstName, " ", workerdb.FatherName });
+                    }
+                    res.Add(eventWeb);
+                }
+            }
+            return (res);
+        }
+
+
+        // Отчет по событиям
+        public IActionResult OnGetReportEvents(string snCheckboxJson, int workerId, string fio, string group, string dateBeg, string dateEnd)
+        {
+            string filename = "ReportFiles/" + Guid.NewGuid().ToString() + ".xlsx";
+            string fullPath = hostingEnvironment.WebRootPath + "/" + filename;
+            var snList = JsonSerializer.Deserialize<List<string>>(snCheckboxJson);
+            var report = GetEventsByFilter(snList, workerId, fio, group, dateBeg, dateEnd);
+            report = report.OrderByDescending(p => p.Id).ToList();
+
+            FileInfo newFile = new FileInfo(fullPath);
+            var package = new ExcelPackage(newFile);
+            ExcelWorksheet sheet = package.Workbook.Worksheets.Add("Отчет");
+
+            sheet.Cells[1, 2].Value = "Отчет по событиям";
+            sheet.Cells[3, 1].Value = "Имя (Серийный номер контроллера)";
+            sheet.Cells[3, 2].Value = "Тип события";
+            sheet.Cells[3, 3].Value = "Номер карты";
+            sheet.Cells[3, 4].Value = "ID сотрудника";
+            sheet.Cells[3, 5].Value = "ФИО сотрудника";
+            sheet.Cells[3, 6].Value = "Время события";
+            sheet.Cells[3, 7].Value = "Флаги события";
+            sheet.Columns[1].Width = 30;
+            sheet.Columns[2].Width = 40;
+            sheet.Columns[3].Width = 15;
+            sheet.Columns[4].Width = 20;
+            sheet.Columns[5].Width = 30;
+            sheet.Columns[6].Width = 20;
+            sheet.Columns[7].Width = 15;
+            sheet.Row(1).Style.Font.Bold = true;
+            sheet.Row(1).Style.Font.Size = 25;
+            sheet.Row(3).Style.Font.Bold = true;
+            sheet.Row(3).Style.Font.Size = 15;
+            sheet.Row(3).Style.WrapText = true;
+            sheet.Column(1).Style.HorizontalAlignment = OfficeOpenXml.Style.ExcelHorizontalAlignment.Left;
+
+            int row = 4;
+            int column = 1;
+            foreach (var ev in report)
+            {
+
+                if (controllers.FirstOrDefault(p => p.sn == ev.sn).name is null)
+                {
+                    sheet.Cells[row, column].Value = ev.sn;
+                }
+                else
+                {
+                    sheet.Cells[row, column].Value = controllers.FirstOrDefault(p => p.sn == ev.sn).name;
+                }
+
+                if (eventCodes.FirstOrDefault(p => p.eventCode == ev.Event) is null)
+                {
+                    sheet.Cells[row, column + 1].Value = ev.Event;
+                }
+                else
+                {
+                    sheet.Cells[row, column + 1].Value = eventCodes.FirstOrDefault(p => p.eventCode == ev.Event).Event;
+                }
+                sheet.Cells[row, column + 2].Value = ev.card;
+                sheet.Cells[row, column + 3].Value = ev.workerId;
+                var workerdb = dbcontext.Workers.FirstOrDefault(p => p.Id == ev.workerId);
+                if (workerdb is not null)
+                {
+                    sheet.Cells[row, column + 4].Value = System.String.Concat(new string[] { workerdb.LastName, " ", workerdb.FirstName, " ", workerdb.FatherName });
+                }
+                sheet.Cells[row, column + 5].Value = ev.dateTime.ToString();
+                sheet.Cells[row, column + 6].Value = ev.flag;
+                row++;
+            }
+
+            package.Save();
+            return Content(filename);
+        }
+
+
+        // Печать событий       
+        public IActionResult OnGetPrintEvents(string snCheckboxJson, int workerId, string fio, string group, string dateBeg, string dateEnd)
+        {
+            string filename = "ReportFiles/" + Guid.NewGuid().ToString() + ".pdf";
+            string fullPath = hostingEnvironment.WebRootPath + "/" + filename;
+            //var snList = JsonSerializer.Deserialize<List<string>>(snCheckboxJson);
+            List<string> snList = new List<string>();
+            List<Events> eventsListAll = GetEventsByFilter(snList, workerId, fio, group, dateBeg, dateEnd).OrderBy(p => p.Id).ToList();
+            if (dateBeg == null) { dateBeg = eventsListAll.LastOrDefault().dateTime.ToShortDateString(); }
+            if (dateEnd == null) { dateEnd = eventsListAll.FirstOrDefault().dateTime.ToShortDateString(); }
+            List<Workers> workersdb = eventsListAll.Select(p => p.worker).Distinct().OrderBy(p => p.LastName).ToList();
+
+            var controllersdb = dbcontext.Controllers.ToList();
+            Aspose.Pdf.Document document = new Aspose.Pdf.Document();
+            Aspose.Pdf.Page page = document.Pages.Add();
+
+            foreach (var worker in workersdb)
+            {
+                string fioLocal = System.String.Concat(new string[] { worker.LastName, " ", worker.FirstName, " ", worker.FatherName });
+                Aspose.Pdf.Text.TextFragment name = new Aspose.Pdf.Text.TextFragment(fioLocal);
+                name.TextState.FontSize = 10;
+                name.TextState.Font = FontRepository.FindFont("Arial");
+                name.TextState.FontStyle = FontStyles.Bold;
+                name.Margin.Bottom = 10;
+                name.Margin.Right = 20;
+                name.HorizontalAlignment = HorizontalAlignment.Right;
+                page.Paragraphs.Add(name);
+
+                var eventsList = eventsListAll.Where(p => p.workerId == worker.Id).ToList();
+                Aspose.Pdf.Table table = new Aspose.Pdf.Table();
+                table.Border = new Aspose.Pdf.BorderInfo(Aspose.Pdf.BorderSide.All, .5f, Aspose.Pdf.Color.FromRgb(System.Drawing.Color.LightGray));
+                table.DefaultCellBorder = new Aspose.Pdf.BorderInfo(Aspose.Pdf.BorderSide.All, .5f, Aspose.Pdf.Color.FromRgb(System.Drawing.Color.LightGray));
+                table.Margin.Bottom = 10;
+                table.ColumnWidths = "94 94 94 94 34";
+
+                Row row = table.Rows.Add();
+                row.DefaultCellTextState.FontSize = 10;
+                row.DefaultCellTextState.Font = FontRepository.FindFont("Arial");
+                row.DefaultCellTextState.FontStyle = FontStyles.Bold;
+                row.Cells.Add("Вход");
+                row.Cells.Add("Дата Время");
+                row.Cells.Add("Выход");
+                row.Cells.Add("Дата Время");
+                row.Cells.Add("Итого");
+
+                DateTime dt0 = new DateTime();
+                TimeSpan allTime = new TimeSpan();
+                for (int i = 0; i < eventsList.Count - 1; i++)
+                {                    
+                    row = table.Rows.Add();
+                    row.FixedRowHeight = 25;
+                    row.DefaultCellTextState.FontSize = 10;
+                    row.DefaultCellTextState.Font = FontRepository.FindFont("Arial");
+
+                    // left
+                    var ev = eventsList[i];
+                    var contr = controllersdb.FirstOrDefault(p => p.sn == ev.sn);
+                    string reader = "Вход";
+                    if (ev.Event == 5) { reader = "Выход"; }
+
+                    if (contr == null || contr.name == null) { row.Cells.Add($"{contr.sn} {reader}"); }
+                    else { row.Cells.Add($"{contr.name} {reader}"); }
+                    var dt1 = ev.dateTime;
+
+                    row.Cells.Add($"{dt1}");
+                    
+                    //right
+                    ev = eventsList[i + 1];
+                    contr = controllersdb.FirstOrDefault(p => p.sn == ev.sn);
+                    reader = "Вход";
+                    if (ev.Event == 5) { reader = "Выход"; }
+
+                    if (contr == null || contr.name == null) { row.Cells.Add($"{contr.sn} {reader}"); }
+                    else { row.Cells.Add($"{contr.name} {reader}"); }
+                    var dt2 = ev.dateTime;
+                    row.Cells.Add($"{dt2}");
+
+                    bool home = (ev.sn == 45001400 && ev.Event == 5) || (ev.sn == 45001162 && ev.Event == 5);
+                    if (dt1.AddMinutes(5) < dt2 || i == eventsList.Count - 2 || home)
+                    {
+                        if (!dt0.Equals(DateTime.MinValue))
+                        {
+                            dt1 = dt0;
+                            dt0 = new DateTime();
+                        }
+                        var timeDelta = dt2.Subtract(dt1);
+                        var cell = row.Cells.Add(timeDelta.ToString(@"hh\:mm"));
+                        cell.DefaultCellTextState.FontStyle = FontStyles.Bold;
+                        cell.DefaultCellTextState.HorizontalAlignment = HorizontalAlignment.Center;
+                        allTime += timeDelta;
+                    }
+                    else if (dt0.Equals(DateTime.MinValue)) { dt0 = dt1; }
+                    if (home) { i++; }
+                }
+
+                document.Pages[1].Paragraphs.Add(table);
+                Aspose.Pdf.Text.TextFragment timeTotal = new Aspose.Pdf.Text.TextFragment(((int)allTime.TotalHours).ToString() + allTime.ToString(@"\:mm"));
+                timeTotal.TextState.FontSize = 10;
+                timeTotal.TextState.Font = FontRepository.FindFont("Arial");
+                timeTotal.TextState.FontStyle = FontStyles.Bold;
+                timeTotal.Margin.Bottom = 40;
+                timeTotal.Margin.Right = 5;
+                timeTotal.HorizontalAlignment = HorizontalAlignment.Right;
+                page.Paragraphs.Add(timeTotal);
+            }
+            document.Save(fullPath);
+
+            document = new Aspose.Pdf.Document(fullPath);
+
+            PageNumberStamp pageNumberStamp = new PageNumberStamp();
+            pageNumberStamp.Background = false;
+            pageNumberStamp.Format = "Страница # из " + document.Pages.Count;
+            pageNumberStamp.BottomMargin = 10;
+            pageNumberStamp.RightMargin = 20;
+            pageNumberStamp.HorizontalAlignment = HorizontalAlignment.Right;
+            pageNumberStamp.StartingNumber = 1;
+            pageNumberStamp.TextState.Font = FontRepository.FindFont("Arial");
+            pageNumberStamp.TextState.FontSize = 14.0F;
+            pageNumberStamp.TextState.FontStyle = FontStyles.Bold;
+            pageNumberStamp.TextState.FontStyle = FontStyles.Italic;
+
+            TextStamp headerTextStamp = new TextStamp($"{DateOnly.Parse(dateBeg)} - {DateOnly.Parse(dateEnd)}");
+            headerTextStamp.TopMargin = 30;
+            headerTextStamp.HorizontalAlignment = HorizontalAlignment.Center;
+            headerTextStamp.VerticalAlignment = VerticalAlignment.Top;
+            headerTextStamp.TextState.Font = FontRepository.FindFont("Arial");
+            headerTextStamp.TextState.FontSize = 14.0F;
+            headerTextStamp.TextState.FontStyle = FontStyles.Bold;
+
+            foreach (Aspose.Pdf.Page pageLocal in document.Pages)
+            {
+                pageLocal.AddStamp(headerTextStamp);
+                pageLocal.AddStamp(pageNumberStamp);
+            }
+
+            document.Save(fullPath);
+            return Content(filename);
+        }
+
+
+        public List<Events> GetEventsByFilter(List<string> snList, int workerId, string fio, string group, string dateBeg, string dateEnd)
+        {
+            List<EventsWeb> res = new List<EventsWeb>();
+            var eventsdb = dbcontext.Events.Include(c => c.worker).Where(c => c.worker != null
+                && (c.Event == 4 || c.Event == 5)
+                && (snList.Count == 0 || snList.Contains(c.sn.ToString()))
+                && (workerId == 0 || c.workerId == workerId)).ToList();
+
+            eventsdb = eventsdb.Where(p => (dateBeg == null || DateTime.Parse(dateBeg) < p.dateTime)
+                && (dateEnd == null || DateTime.Parse(dateEnd).AddDays(1) > p.dateTime)
+                && p.worker != null
+                && (fio == null || System.String.Concat(new string[] { p.worker.LastName, " ", p.worker.FirstName, " ", p.worker.FatherName }).ToUpper().IndexOf(fio.ToUpper()) != -1)
+                && (group == null || p.worker.group == group)).ToList();
+           
+            return (eventsdb);
+        }
+
+
+        // Задание имени контроллера
+        public IActionResult OnGetSetControllerName(int id, string name)
+        {
+            var controllerdb = dbcontext.Controllers.FirstOrDefault(p => p.name == name);
+            if (name != null && controllerdb != null)
+            {
+                return Content("Это имя занято");
+            }
+            controllerdb = dbcontext.Controllers.FirstOrDefault(p => p.Id == id);
+            if (controllerdb == null)
+            {
+                return Content("Нет такого контроллера");
+            }
+            controllerdb.name = name;
+            dbcontext.Controllers.Update(controllerdb);
+            dbcontext.SaveChanges();
+            return Content("true");
+        }
+
+
+        // Добавление фотографии в папку
+        public IActionResult OnPostSetImage()
+        {
+            if (formFile is null)
+            {
+                _logger.LogInformation("null file");
+                return Content("empty");
+            }
+            string filename = Guid.NewGuid().ToString();
+            filename += Path.GetExtension(formFile.FileName);
+            using (var stream = new FileStream(Path.Combine(hostingEnvironment.WebRootPath, "images/", filename), FileMode.Create))
+            {
+                formFile.CopyTo(stream);
+            }
+            return Content(filename);
+        }
+
+
+        // Удаление фотографии
+        public void RemoveImage(string image)
+        {
+            System.IO.File.Delete(Path.Combine(hostingEnvironment.WebRootPath, "images/", image));
+        }
+
+
+        // Переключение вкладки
+        public IActionResult OnGetChangePage(string tab)
+        {
+            HttpContext.Session.SetString("tab", tab);
+            return Content("true");
+        }
     }
 }

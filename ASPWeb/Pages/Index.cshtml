@@ -1,4 +1,5 @@
 ﻿@page
+@using ASPWeb.Models;
 @model IndexModel
 @{
     ViewData["Title"] = "Home page";
@@ -6,6 +7,7 @@
     ViewData["user"] = "user";
     ViewData["card"] = "card";
     ViewData["controller"] = "controller";
+    ViewBag.groups = Model._dataManager.groups.groups;
 }
 
 <!--Авторизация-->
@@ -16,56 +18,56 @@
         <form method="post">            
             <p>
                 <label>Логин</label><br>
-                <input name="login" value="admin"/>
+                <input id="user_login" name="login" value="admin"/>
             </p>
             <p>
                 <label>Пароль</label><br>
-                <input type="password" name="password" value="admin"/>
+                <input id="user_password" type="password" name="password" value="admin"/>
             </p>
             <input class="btn btn-secondary" type="submit" value="Вход" />
         </form>
-        @if (HttpContext.Session.GetString("BadRequest") == "true")
-        {
-            <p class="err_msg">Логин и/или пароль не правильно введены</p>
-        }
+        <input class="btn btn-secondary" type="submit" value="Вход" onclick="LogOn()" />
+        <p id="log_on_err" class="d-none err_msg">nope</p>
+    }
     }
 
 </div>
 
 @if (HttpContext.Session.GetString("logged") == "true")
-{   
+{
     <div id="nav">
         <button class="btn btn-secondary" id="button_users" name="users">Пользователи</button>
         <button class="btn btn-secondary" id = "button_workers"  name="workers">Сотрудники</button>
-        <button class="btn btn-secondary" id = "button_cards" name="cards">Карты</button>        
-        <button class="btn btn-secondary" id = "button_groups" name="groups">Группы</button>
+        <button class="btn btn-secondary" id = "button_cards" name="cards">Карты</button>
+        <button class="btn btn-secondary" id="button_groups" name="groups">Подразделения</button>
         <button class="btn btn-secondary" id = "button_access_groups" name="access_groups">Группы доступа</button>
         <button class="btn btn-secondary" id = "button_relations_controllers_access_groups" >Связь Контроллеры - Группы доступа</button>
         <button class="btn btn-secondary" id = "button_controllers" name="controllers">Контроллеры</button>
         <button class="btn btn-secondary" id="button_events" name="events">События</button>
     </div>
-    
 
-    <!--форма добавления пользователей-->
-    <div id="add_users" class="add_form d-none">
-        <form>
-            <h4>Добавить пользователя</h4>
-            <p>
-                <label>Логин</label><br>
-                <input id="add_user_log" name="regLogin" />
-            </p>
-            <p>
-                <label>Пароль</label><br>
-                <input id="add_user_passw" type="password" name="regPassword" />
-            </p>
-        </form>
-        <button class="btn btn-secondary" onclick="AddUser()">Добавить</button>
-        <p id="add_users_err" class="d-none err_msg">nope</p>
-    </div>
+    @if (HttpContext.Session.GetString("tab") == "users")
+    {
+        <!--форма добавления пользователей-->
+        <div id="add_users" class="add_form d-none">
+            <form>
+                <h4>Добавить пользователя</h4>
+                <p>
+                    <label>Логин</label><br>
+                    <input id="add_user_log" name="regLogin" />
+                </p>
+                <p>
+                    <label>Пароль</label><br>
+                    <input id="add_user_passw" type="password" name="regPassword" />
+                </p>
+            </form>
+            <button class="btn btn-secondary" onclick="AddUser()">Добавить</button>
+            <p id="add_users_err" class="d-none err_msg">nope</p>
+        </div>
 
 
-    <!--Таблица пользователей-->
-    <div id="table_users" class="d-none">
+        <!--Таблица пользователей-->
+        <div id="table_users">
             <h1>Пользователи</h1>
             <table class="table_home">
                 <tr>
@@ -83,515 +85,643 @@
                         <td>
                             @if (HttpContext.Session.GetString("userId") != user.Id.ToString())
                             {
-                            <button class="btn btn-secondary" onclick="DeleteUser(@user.Id)">Удалить</button>
+                                <button class="btn btn-secondary" onclick="DeleteUser(@user.Id)">Удалить</button>
                             }
                         </td>
                     </tr>
                 }
             </table>
-    </div>
+        </div>
+    }
+
+    @if (HttpContext.Session.GetString("tab") == "workers")
+    {
+        <!--Добавление и редактирование сотрудника-->
+        <div class="modal fade" id="Modal_worker_edit" tabindex="-1" aria-labelledby="ModalLabel_worker_edit" aria-hidden="true">
+            <div class="modal-dialog">          
+            </div>
+        </div>
 
 
-    <!--форма добавления сотрудников-->
-    <div id="add_workers" class="add_form d-none">        
-        <form name="add_workers_form">
-            <h4>Добавить сотрудника</h4>
-            <p>
-                <label>ИДН</label><br>
-                <input id="add_worker_idn" type="number"/>
-            </p>
-            <p>
-                <label>ФИО</label><br>
-                <input id="add_worker_fio" />
-            </p>
-            <p>
-                <label>Должность</label><br>
-                <input id="add_worker_position" />
-            </p>
-            <p>
-                <label>Группа</label><br>
-                <select id="add_worker_select_group">
-                    @foreach (Groups group in Model.groups)
-                    {
-                        <option>@group.group</option>
-                    }
-                </select>
-            </p>
-            <p>
-                <label>Комментарий(необязательно)</label><br>
-                <textarea id="add_worker_comment" cols="40" rows="10"></textarea>                
-            </p>
-            <p>
-                <label>Карта(необязательно)</label><br>
-                <input id="add_worker_card" disabled/>
-            </p>
-        </form>
-        <button id="button_worker_read_card" class="btn btn-secondary" onclick="AddWorkerReadCard()">Считать карту</button>
-        <select id="add_worker_select_card" onchange="AddWorkerСhooseCard()" onfocus="AddWorkerСhooseCard()">
-            @foreach (Cards card in Model.emptyCards)
-            {
-                <option value="@card.card">@card.card</option>
-            }
+        <!--Редактирование доступа по группам-->
+        <div class="modal fade" id="Modal_worker_access_groups" tabindex="-1" aria-labelledby="ModalLabel_worker_access_groups" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="ModalLabel_worker_access_groups">Индивидуальные группы доступа для ID сотрудника: </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body d-flex flex-column flex-wrap justify-content-center align-items-start">
+                        @foreach (AccessGroups accessGroup in Model.accessGroups)
+                        {
+                            <label class="col-6 text-start mb-3">
+                                <input type="checkbox" id="@($"Modal_worker_access_groups_checkbox{accessGroup.accessGroup}")" class="Modal_worker_access_groups_checkbox" value="@accessGroup.accessGroup" />
+                                @accessGroup.accessGroup
+                            </label>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                        <button type="button" class="btn btn-primary" onclick="ChangeAccessGroups()">Сохранить</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!--Редактирование доступа по точкам-->
+        <div class="modal fade" id="Modal_worker_access_points" tabindex="-1" aria-labelledby="ModalLabel_worker_access_points" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="ModalLabel_worker_access_points">Индивидуальные группы доступа для ИДН сотрудника: </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        @foreach (Controllers controller in Model.controllers)
+                        {
+                            <label>
+                                <input type="checkbox" id="@($"Modal_worker_access_points_checkbox_in{controller.sn}")" class="Modal_worker_access_points_checkbox" value="@($"{controller.sn}_1")" />
+                                @if (controller.name != null) { Write($"{controller.name} - вход"); }
+                                else { Write($"{controller.sn} - вход"); }
+                            </label><br>
+
+                            <label>
+                                <input type="checkbox" id="@($"Modal_worker_access_points_checkbox_out{controller.sn}")" class="Modal_worker_access_points_checkbox" value="@($"{controller.sn}_2")" />
+                                @if (controller.name != null) { Write($"{controller.name} - выход"); }
+                                else { Write($"{controller.sn} - выход"); }
+                            </label><br>
+                        }
         </select><br><br>
         <button class="btn btn-secondary" onclick="AddWorker()">Добавить</button>
         <p id="add_workers_err" class="d-none err_msg">nope</p>
-    </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                        <button type="button" class="btn btn-primary" onclick="ChangeAccessPoints()">Сохранить</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
 
-    <!--форма добавления карты сотруднику-->
-     <div id="add_card_in_worker" class="add_form d-none">
-        <form>
-            <h4>Добавить карту сотруднику</h4>
-            <p>
-                <label>ИДН</label><br>
-                <input id="add_card_in_worker_idn" disabled />
-            </p>
-            <p>
-                <label>Карта</label><br>
-                <input id="add_card_in_worker_card" disabled />
-            </p>
+        <!--форма добавления карты сотруднику-->
+        <div class="modal fade" id="Modal_add_card_in_worker" tabindex="-1" aria-labelledby="ModalLabel_add_card_in_worker" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="ModalLabel_add_card_in_worker">Добавить карту сотруднику</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>
+                            <label>ID</label><br>
+                            <input id="add_card_in_worker_id" disabled />
+                        </p>
+                        <p>
+                            <label>Карта</label><br>
+                            <input id="add_card_in_worker_card" />
+                        </p>
         </form>
-        <button id="add_card_in_worker_read_card" class="btn btn-secondary" onclick="AddCardInWorkerReadCard()">Считать карту</button>
-        <select id="add_card_in_worker_select_card" onchange="AddCardInWorkerСhooseCard()" onfocus="AddCardInWorkerСhooseCard()">
-            @foreach (Cards card in Model.emptyCards)
+                        <button id="add_card_in_worker_read_card" class="btn btn-secondary" onclick="AddCardInWorkerReadCard()">Считать карту</button>
+                        <select id="add_card_in_worker_select_card" onchange="AddCardInWorkerСhooseCard()" onfocus="AddCardInWorkerСhooseCard()">
+                            @foreach (Cards card in Model.emptyCards)
+                            {
+                                <option value="@card.card">@card.card</option>
+                            }
+                        </select>
+                        <p id="add_card_in_worker_err" class="d-none err_msg">nope</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                        <button type="button" class="btn btn-primary" onclick="AddCardInWorker()">Добавить</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!--таблица сотрудников-->
+        <div id="table_workers">
+            <br>
+            <h1>Сотрудники</h1>
+            <input id="filter_worker" size="50" onchange="FilterWorker()" />
+            <button class="btn btn-secondary" onclick="FilterWorker()">Поиск</button>
+            <button class="btn btn-secondary" onclick="FindComments()">Есть комментарии</button>
+            <button type="button" class="btn btn-secondary add_worker" data-bs-toggle="modal" data-bs-target="#Modal_worker_edit">Добавить</button>
+            <div class="position-relative w-100">
+                <img class="position-absolute d-none table-card-spinner" style="max-width:100%" src="~/js/spinner.gif" />
+            </div>
+            @foreach (Groups group in Model.groups)
             {
-                <option value="@card.card">@card.card</option>
-            }
-        </select><br><br>
-        <button class="btn btn-secondary" onclick="AddCardInWorker()">Добавить</button>
-        <p id="add_card_in_worker_err" class="d-none err_msg">nope</p>
-    </div>
-
-
-    <!--таблица сотрудников-->
-    <div id="table_workers" class="d-none"><br>
-        <h1>Сотрудники</h1>
-        <input id="filter_worker" size="50"/>
-        <button class="btn btn-secondary" onclick="FilterWorker()">Поиск</button>
-        <button class="btn btn-secondary" onclick="WorkerForm()">Добавить</button>
-        @foreach (Groups group in Model.groups)
-        {
-            <details id="@($"workers_group_{group.Id}")" class="workers_groups">
-                <summary>@group.group</summary>
-                <table class="table_home">
-                    <tr>
-                        <th>ID</th>
-                        <th>ИДН сотрудника</th>
-                        <th>ФИО</th>
-                        <th>Должность</th>
-                        <th>Группа</th>
-                        <th>Карты</th>
-                        <th>Группы доступа</th>                        
-                        <td></td>
-                    </tr>
-                    @foreach (Workers worker in Model.workers)
-                    {
-                        @if (worker.group == group.group)
+                <details id="@($"workers_group_{group.Id}")" class="workers_groups">
+                    <summary>@group.group</summary>
+                    <table class="table_home">
+                        <tr>
+                            <th>ID</th>
+                            <th>ИДН сотрудника</th>
+                            <th>ФИО</th>
+                            <th>Фото</th>
+                            <th>Должность</th>
+                            <th>Комментарий</th>
+                            <th>Группа</th>
+                            <th>Карты</th>
+                            <th>Группы доступа</th>
+                            <td></td>
+                        </tr>                        
+                        @foreach (Workers worker in Model.workers)
                         {
-                            <tr id="@($"worker{worker.Id}")" class="worker_tr">
-                                <td>@worker.Id</td>
-                                <td>@worker.worker</td>
-                                <td>@worker.fio</td>
-                                <td>@worker.position</td>
-                                <td>@worker.group</td>
-                                @{
+                            @if (worker.group == group.group)
+                            {
+                                <tr id="@($"worker{worker.Id}")" class="worker_tr">
+                                    <td>@worker.Id</td>
+                                    <td>@worker.worker</td>
+                                    <td>@String.Concat(new string[] { worker.LastName, " ", worker.FirstName, " ", worker.FatherName })</td>
+                                    <td>@if (worker.Image is not null)
+                                        {
+                                            <img src="~/images/@worker.Image" loading="lazy" width="200">
+                                        }
+                                    </td>
+                                    <td>@worker.position</td>
+                                    <td>@worker.comment</td>                    
+                                    <td>@worker.group</td>
+                                    @{
                                     using (ApplicationContext db = new ApplicationContext())
                                     {
                                         List<Cards> workerCards = db.Cards.Where(p => p.worker == worker.worker).ToList();
-                                        <td>   
+                                        <td>
                                             <select id="@($"worker{worker.Id}_select_card")">
-                                                @foreach (Cards card in workerCards)
+                                                @foreach (Cards card in worker.cards)
                                                 {
-                                                    <option>@card.Id</option>
+                                                    <option value="@card.card">@card.card</option>
                                                 }
                                             </select>
                                         </td>
-                                        <td>
-                                            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="@($"#Modal_worker_access_groups{worker.Id}")">Группы доступа</button><br><br>
+                                        <td align="center">
+                                            <label><input type="radio" class="radio_access" worker-id="@worker.Id" name="@($"radio_worker{worker.Id}")" value="1" @if(worker.personalCheck == 1){Write("checked");}>Подразделение</label>
+                                            <label><input type="radio" class="radio_access" worker-id="@worker.Id" name="@($"radio_worker{worker.Id}")" value="2" @if(worker.personalCheck == 2){Write("checked");}>Группы доступа</label>
+                                            <label><input type="radio" class="radio_access" worker-id="@worker.Id" name="@($"radio_worker{worker.Id}")" value="3" @if(worker.personalCheck == 3){Write("checked");}>Точки</label>
+                                            <br><br>
 
-                                            <div class="modal fade" id="@($"Modal_worker_access_groups{worker.Id}")" tabindex="-1" aria-labelledby="@($"ModalLabel_worker_access_groups{worker.Id}")" aria-hidden="true">
-                                                <div class="modal-dialog">
-                                                    <div class="modal-content">
-                                                        <div class="modal-header">
-                                                            <h5 class="modal-title" id="@($"ModalLabel_worker_access_groups{worker.Id}")">Индивидуальные группы доступа для ИДН сотрудника: @worker.worker</h5>
-                                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                                        </div>
-                                                        <div class="modal-body">
-                                                            @foreach (AccessGroups accessGroup in Model.accessGroups)
-                                                            {
-                                                                <input type="checkbox" class="@($"Modal_worker_access_groups{worker.Id}_checkbox")" value="@accessGroup.accessGroup" @if(worker.accessGroups.Contains(accessGroup.accessGroup)){Write("checked");} />
-                                                                @accessGroup.accessGroup
-                                                                <br>
-                                                            }
-                                                        </div>
-                                                        <div class="modal-footer">
-                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                                                            <button type="button" class="btn btn-primary" onclick="ChangeAccessGroups(@worker.Id)">Сохранить</button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <input type="checkbox" onclick="ChangePersonalCheck(@worker.Id)" @if(worker.personalCheck == 1) {Write("checked"); } />
-                                            <select>
-                                                @foreach (string accessGroup in worker.accessGroups)
-                                                {
-                                                    <option>@accessGroup</option>
-                                                }
-                                            </select>
+                                            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#Modal_worker_access_groups" onclick="ShowModalAccessGroups(@worker.Id)">Группы доступа</button><br><br>
+                                            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#Modal_worker_access_points" onclick="ShowModalAccessPoints(@worker.Id)">Точки доступа</button><br><br>                                         
                                         </td>
                                         <td>
                                             <button class="btn btn-secondary" onclick="DeleteWorker(@worker.Id)">Удалить</button><br>
-                                            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="@($"#Modal_worker_redact{worker.Id}")">Редактировать</button><br>
-
-                                            <div class="modal fade" id="@($"Modal_worker_redact{worker.Id}")" tabindex="-1" aria-labelledby="@($"ModalLabel_worker_redact{worker.Id}")" aria-hidden="true">
-                                                <div class="modal-dialog">
-                                                    <div class="modal-content">
-                                                        <div class="modal-header">
-                                                            <h5 class="modal-title" id="@($"ModalLabel_worker_redact{worker.Id}")">Редактирование ИДН сотрудника: @worker.worker</h5>
-                                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                                        </div>
-                                                        <div class="modal-body">
-                                                            <p>
-                                                                <label>ИДН</label><br>
-                                                                <input id="@($"Modal_worker_redact{worker.Id}_worker")" value="@worker.worker" type="number"/>
-                                                            </p>
-                                                            <p>
-                                                                <label>ФИО</label><br>
-                                                                <input id="@($"Modal_worker_redact{worker.Id}_fio")" value="@worker.fio" />
-                                                            </p>
-                                                            <p>
-                                                                <label>Должность</label><br>
-                                                                <input id="@($"Modal_worker_redact{worker.Id}_position")" value="@worker.position" />
-                                                            </p>
-                                                            <p>
-                                                                <label>Группа</label><br>
-                                                                <select id="@($"Modal_worker_redact{worker.Id}_select_group")">
-                                                                    @foreach (Groups group2 in Model.groups)
-                                                                    {
-                                                                        @if (group.group == group2.group) {
-                                                                            <option selected>@group2.group</option>
-                                                                        }
-                                                                        else
-                                                                        {
-                                                                            <option>@group2.group</option>
-                                                                        }
-                                                                    }
-                                                                </select>
-                                                            </p>
-                                                            <p>
-                                                                <label>Комментарий</label><br>
-                                                                <textarea id="@($"Modal_worker_redact{worker.Id}_comment")" cols="40" rows="10">@worker.comment</textarea>
-                                                            </p>
-                                                            <p id="@($"Modal_worker_redact{worker.Id}_err")" class="d-none err_msg">nope</p>
-                                                        </div>
-                                                        <div class="modal-footer">
-                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-                                                            <button type="button" class="btn btn-primary" onclick="RedactWorker(@worker.Id, @worker.worker)">Сохранить</button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <button class="btn btn-secondary" onclick="AddCardInWorkerForm(@worker.worker)">Добавить карту</button><br>
-                                            @if (workerCards.Count > 0)
-                                            {
-                                                <button class="btn btn-secondary" onclick="RemoveCardFromWorker(@worker.worker, @worker.Id)">Убрать карту</button>                                                
-                                            }
-                                        </td>                                        
+                                            <button type="button" worker-id="@worker.Id" class="btn btn-secondary edit_worker" data-bs-toggle="modal" data-bs-target="#Modal_worker_edit">Редактировать</button><br>
+                                            <button type="button" worker-id="@worker.Id" class="btn btn-secondary" data-bs-toggle="modal" onclick="AddCardInWorkerForm(@worker.Id)" data-bs-target="#Modal_add_card_in_worker">Добавить карту</button><br>
+                                            <button id="@($"remove_card{worker.Id}")" class="btn btn-secondary @if(worker.cards.Count() == 0){Write("d-none");}" onclick="RemoveCardFromWorker(@worker.Id)">Убрать карту</button>
+                                        </td>
                                     }
                                 }
-                        </tr>
+                                </tr>
+                            }
                         }
-                    }
-                </table>
-            </details>
-        }
-    </div>
-
-
-    <!--форма добавления карт-->
-    <div id="add_cards" class="add_form d-none">
-        <form>
-            <h4>Добавить карту</h4>
-            <p>
-                <label>Номер карты</label><br>
-                <input id="add_card_id" disabled />
-            </p>            
-            <p>
-                <label>ИДН сотрудника(необязательно)</label><br>
-                <input id="add_card_worker" />
-            </p>
-        </form>
-        <button id="button_read_card" class="btn btn-secondary" onclick="ReadCard()">Считать карту</button><br><br>
-        <button class="btn btn-secondary" onclick="AddCard()">Добавить</button>
-        <p id="add_cards_err" class="d-none err_msg">nope</p>
-    </div>
-
-
-    <!--таблица карт-->
-    <div id="table_cards" class="d-none"><br>
-        <h1>Карты</h1>
-        <input id="filter_card" size="50"/>
-        <button class="btn btn-secondary" onclick="FilterCard()">Поиск</button>
-        <button class="btn btn-secondary" onclick="CardForm()">Добавить</button>
-        <table class="table_home">
-            <tr>
-                <th>ID</th>
-                <th>Номер карты</th>
-                <th>Номер карты16</th>
-                <th>Сотрудник</th>
-                <td></td>
-            </tr>
-            @foreach (Cards card in Model.cards)
-            {
-                <tr id="@($"card{card.Id}")" class="card_tr">
-                    <td>@card.Id</td>
-                    <td>@card.card</td>
-                    <td>@card.card16</td>
-                    <td>@card.worker</td>
-                    <td><button class="btn btn-secondary" onclick="DeleteCard(@card.Id)">Удалить</button></td>
-                </tr>
+                    </table>
+                </details>
             }
-        </table>
-    </div>
+        </div>
+    }
+
+    @if (HttpContext.Session.GetString("tab") == "cards")
+    {
+        <!--форма добавления карт-->
+        <div id="add_cards" class="add_form d-none">
+            <form>
+                <h4>Добавить карту</h4>
+                <p>
+                    <label>Номер карты</label><br>
+                    <input id="add_card_id" />
+                </p>            
+                <p>
+                    <label>ID сотрудника(необязательно)</label><br>
+                    <input id="add_card_worker" type="number"/>
+                </p>
+            </form>
+            <button id="button_read_card" class="btn btn-secondary" onclick="ReadCard()">Считать карту</button><br><br>
+            <button class="btn btn-secondary" onclick="AddCard()">Добавить</button>
+            <p id="add_cards_err" class="d-none err_msg">nope</p>
+        </div>
 
 
-    <!--таблица контроллеров-->
-    <div id="table_controllers" class="d-none">
-        <h1>Контроллеры</h1>
-        <table class="table_home">
-            <tr>
-                <th>ID</th>
-                <th>Тип контроллера</th>
-                <th>Серийный номер контроллера</th>
-                <th>Версия прошивки контроллера</th>
-                <th>Версия прошивки модуля связи</th>
-                <th>IP адрес контроллера в локальной сети</th>
-            </tr>
-            @foreach (Controllers controller in Model.controllers)
-            {
-                <tr id="@($"controller{controller.Id}")">
-                    <td>@controller.Id</td>
-                    <td>@controller.type</td>
-                    <td>@controller.sn</td>
-                    <td>@controller.fw</td>
-                    <td>@controller.conn_fw</td>
-                    <td>@controller.controller_ip</td>
-                    <td><button class="btn btn-secondary" onclick="DeleteController(@controller.Id)">Удалить</button></td>
-                </tr>
-            }
-        </table>
-    </div>
-
-
-    <!--таблица событий-->
-    <div id="table_events" class="d-none">
-        <h1>События</h1>
-        <table class="table_home">
-            <tr>
-                <th>ID</th>
-                <th>Серийный номер контроллера</th>
-                <th>Тип события</th>
-                <th>Номер карты</th>
-                <th>Время события</th>
-                <th>Флаги события</th>
-            </tr>
-            @foreach (Events Event in Model.events)
-            {
+        <!--таблица карт-->
+        <div id="table_cards"><br>
+            <h1>Карты</h1>
+            <input id="filter_card" size="50" onchange="FilterCard()" />
+            <button class="btn btn-secondary" onclick="FilterCard()">Поиск</button>
+            <button class="btn btn-secondary" onclick="CardForm()">Добавить</button>
+            <table class="table_home">
+                <div class="position-relative w-100">
+                    <img class="position-absolute d-none table-card-spinner" style="max-width:100%" src="~/js/spinner.gif" />
+                </div>
                 <tr>
-                    <td>@Event.Id</td>
-                    <td>@Event.sn</td>
-                    <td>
-                        @if (Model.eventCodes.FirstOrDefault(p => p.eventCode == Event.Event) is null)
-                        { Write(Event.Event); }
-                        else
-                        { Write(Model.eventCodes.FirstOrDefault(p => p.eventCode == Event.Event).Event); }
-                    </td>
-                    <td>@Event.card</td>
-                    <td>@Event.time</td>
-                    <td>@Event.flag</td>
+                    <th>ID</th>
+                    <th>Номер карты</th>
+                    <th>Номер карты16</th>
+                    <th>Сотрудник</th>
+                    <td></td>
                 </tr>
-            }
-        </table>
-    </div>
+                @foreach (Cards card in Model.cards)
+                {
+                    <tr id="@($"card{card.Id}")" class="card_tr">
+                        <td>@card.Id</td>
+                        <td>@card.card</td>
+                        <td>@card.card16</td>
+                        <td>
+                            @if (card.workerId != null)
+                            {
+                                Write($"({card.workerId})  {String.Concat(new string[] { Model.workers.FirstOrDefault(p => p.Id == card.workerId).LastName, " ", Model.workers.FirstOrDefault(p => p.Id == card.workerId).FirstName, " ", Model.workers.FirstOrDefault(p => p.Id == card.workerId).FatherName })}");
+                            }
+                        </td>
+                        <td><button class="btn btn-secondary" onclick="DeleteCard(@card.Id)">Удалить</button></td>
+                    </tr>
+                }
+            </table>
+        </div>
+    }
 
 
-    <!--форма добавления группы-->
-    <div id="add_form_group" class="add_form d-none">
-        <form>
-            <h4>Добавить группу</h4>
-            <p>
-                <label>Название группы</label><br>
-                <input id="add_group_name" />
-            </p>            
-        </form>
-        <button class="btn btn-secondary" onclick="AddGroup()">Добавить</button>
-        <p id="add_groups_err" class="d-none err_msg">nope</p>
-    </div>
-
-
-    <!--форма добавления группы доступа в группу-->
-    <div id="add_access_group_in_group" class="add_form d-none">
-        <form>
-            <h4>Добавить группу</h4>
-            <p>
-                <label>Id группы</label><br>
-                <input id="add_access_group_in_group_name" disabled/>
-            </p>
-            <p>
-                <label>Группа доступа</label><br>
-                <select id="add_access_group_in_group_select">
-                    @foreach (AccessGroups accessGroup in Model.accessGroups)
+    <!--форма удаление всех карт из контроллеров-->
+    <div class="modal fade" id="Modal_delete_cards_from_controllers" tabindex="-1" aria-labelledby="ModalLabel_delete_cards_from_controllers" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ModalLabel_delete_cards_from_controllers">Удаление всех карт из контроллеров</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    @foreach (Controllers contr in Model.controllers)
                     {
-                        <option id="@($"add_access_group_in_group_option_{accessGroup.accessGroup}")" class="add_access_group_in_group_option">@accessGroup.accessGroup</option>
+                        <label class="col-6 text-start mb-3">
+                            <input type="checkbox" class="Modal_delete_cards_from_controllers_checkbox" value="@contr.sn" />
+                            @if (contr.name is null) { Write(contr.sn); }
+                            else {Write(contr.name);}
+                        </label>
                     }
-                </select>
-            </p>
-        </form>
-        <button class="btn btn-secondary" onclick="AddAccessGroupInGroup()">Добавить</button>
-        <p id="add_access_group_in_group_err" class="d-none err_msg">nope</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-primary" onclick="DeleteAllCardFromController()">Загрузить</button>
+                </div>
+            </div>
+        </div>
     </div>
 
 
-    <!--Таблица групп-->
-    <div id="table_groups" class="d-none">
-        <h1>Группы</h1>
-        <table class="table_home">
-            <tr>
-                <th>ID</th>
-                <th>Группа</th>
-                <th>Группы доступа</th>
-                <td><button class="btn btn-secondary" onclick="GroupForm()">Добавить</button></td>
-            </tr>
-            @foreach (Groups group in Model.groups)
-            {
+    <!--форма загрузки всех карт в контроллеры-->
+    <div class="modal fade" id="Modal_add_cards_in_controllers" tabindex="-1" aria-labelledby="ModalLabel_add_cards_in_controllers" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ModalLabel_add_cards_in_controllers">Загрузка всех карт в контроллеры</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    @foreach (Controllers contr in Model.controllers)
+                    {
+                        <label class="col-6 text-start mb-3">
+                            <input type="checkbox" class="Modal_add_cards_in_controllers_checkbox" value="@contr.sn" />
+                            @if (contr.name is null) { Write(contr.sn); }
+                            else { Write(contr.name); }
+                        </label>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-primary" onclick="AddAllCardInController()">Загрузить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    @if (HttpContext.Session.GetString("tab") == "controllers")
+    {
+        <!--таблица контроллеров-->
+        <div id="table_controllers">
+            <h1>Контроллеры</h1>
+            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#Modal_add_cards_in_controllers">Добавить все карты в контроллеры</button>
+            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#Modal_delete_cards_from_controllers">Удалить все карты из контроллеров</button>
+            <table class="table_home">
                 <tr>
-                    <td>@group.Id</td>
-                    <td>@group.group</td>
-                    <td>
-                        <select id="@($"group{group.Id}_select_access_group")">
-                            @foreach (string accessGroup in group.accessGroups)
-                            {
-                                <option>@accessGroup</option>
-                            }
-                        </select>
-                    </td>
-                    <td>
-                        @{
-                            using (ApplicationContext db = new ApplicationContext())
-                            {
-                                List<AccessGroups> accessGroupsdb = db.AccessGroups.ToList();
-                                if (accessGroupsdb.Count > group.accessGroups.Count)
+                    <th>ID</th>
+                    <th>Тип контроллера</th>
+                    <th>Серийный номер контроллера</th>
+                    <th>Имя контроллера</th>
+                    <th>Версия прошивки контроллера</th>
+                    <th>Версия прошивки модуля связи</th>
+                    <th>IP адрес контроллера в локальной сети</th>
+                    <th>Время последнего отклика</th>
+                </tr>
+                @foreach (Controllers controller in Model.controllers)
+                {
+                    <tr id="@($"controller{controller.Id}")">
+                        <td>@controller.Id</td>
+                        <td>@controller.type</td>
+                        <td>@controller.sn</td>
+                        <td><input type="text" value="@controller.name" onchange="SetControllerName(@controller.Id, this.value)"></td>
+                        <td>@controller.fw</td>
+                        <td>@controller.conn_fw</td>
+                        <td>@controller.controller_ip</td>
+                        <td @if(DateTime.Parse(controller.lastCall) < DateTime.Now.AddMinutes(-5)){Write("class=text-danger");}>@controller.lastCall</td>
+                        <td><button class="btn btn-secondary" onclick="DeleteController(@controller.Id)">Удалить</button></td>
+                    </tr>
+                }
+            </table>
+        </div>
+    }
+
+
+    @if (HttpContext.Session.GetString("tab") == "events")
+    {
+        <!--форма удаление всех карт из контроллеров-->
+        <div class="modal fade" id="Modal_filter_sn" tabindex="-1" aria-labelledby="ModalLabel_filter_sn" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="ModalLabel_filter_sn">Выберите контроллеры</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        @foreach (Controllers contr in Model.controllers)
+                        {
+                            <label class="col-6 text-start mb-3">
+                                <input type="checkbox" class="Modal_filter_sn_checkbox" value="@contr.sn" />
+                                @if (contr.name is null) { Write(contr.sn); }
+                                else { Write(contr.name); }
+                            </label>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Применить</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!--таблица событий-->
+        <div id="table_events">
+            <h1>События</h1>
+            <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#Modal_filter_sn">Выбрать контроллеры</button>          
+            <input id="filter_events_worker" placeholder="ID сотрудника" size="20" />
+            <input id="filter_events_fio" placeholder="ФИО сотрудника" size="20" />С:
+            <input id="filter_events_date_beg" type="date" value="@DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd")"/> По:
+            <input id="filter_events_date_end" type="date" value="@DateTime.Now.ToString("yyyy-MM-dd")" /><br>
+            
+            <select id="filter_events_select_group">
+                <option value="" selected>Все подразделения</option>
+                @foreach (Groups group in Model.groups)
+                {
+                    <option value="@group.group">@group.group</option>
+                }
+            </select>
+            <button class="btn btn-secondary" onclick="FilterEvents()">Поиск</button>
+            <button class="btn btn-secondary" onclick="ReportEvents()">Отчет</button>
+            <button class="btn btn-secondary" onclick="PrintEvents()">Печать</button><br>
+            <div class="position-relative w-100">
+                <img class="position-absolute d-none table-event-spinner" style="max-width:100%" src="~/js/spinner.gif"/>
+            </div>
+            <table class="table_home">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Контроллер</th>
+                        <th>Тип события</th>
+                        <th>Номер карты</th>
+                        <th>ID сотрудника</th>
+                        <th>ФИО сотрудника</th>
+                        <th>Время события</th>
+                        <th>Флаги события</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (Events Event in Model.events)
+                    {
+                        <tr id="@($"event{Event.Id}")" class="event_tr">
+                            <td>@Event.Id</td>
+                            <td>
+                                @if (Model.controllers.FirstOrDefault(p => p.sn == Event.sn).name is null)
+                                { Write($"{Event.sn}"); }
+                                else
+                                { Write($"{Model.controllers.FirstOrDefault(p => p.sn == Event.sn).name}"); }
+                            </td>
+                            <td>
+                                @if (Model.eventCodes.FirstOrDefault(p => p.eventCode == Event.Event) is null)
+                                { Write(Event.Event); }
+                                else
+                                { Write(Model.eventCodes.FirstOrDefault(p => p.eventCode == Event.Event).Event); }
+                            </td>
+                            <td>@Event.card</td>
+                            <td>@Event.workerId</td>
+                            <td>
+                                @if (Event.worker is not null)
                                 {
-                                    <button class="btn btn-secondary" onclick="AddAccessGroupInGroupForm(@group.Id)">Добавить группу доступа</button>
+                                    Write($"{Event.worker.LastName} {Event.worker.FirstName} {Event.worker.FatherName}");
                                 }
+                            </td>
+                            <td>@Event.dateTime</td>
+                            <td>@Event.flag</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+
+    @if (HttpContext.Session.GetString("tab") == "groups")
+    {
+        <!--форма добавления подразделения-->
+        <div id="add_form_group" class="add_form d-none">
+            <form>
+                <h4>Добавить подразделение</h4>
+                <p>
+                    <label>Название подразделения</label><br>
+                    <input id="add_group_name" />
+                </p>            
+            </form>
+            <button class="btn btn-secondary" onclick="AddGroup()">Добавить</button>
+            <p id="add_groups_err" class="d-none err_msg">nope</p>
+        </div>
+
+
+        <!--форма добавления группы доступа в группу-->
+        <div id="add_access_group_in_group" class="add_form d-none">
+            <form>
+                <h4>Добавить группу</h4>
+                <p>
+                    <label>Id группы</label><br>
+                    <input id="add_access_group_in_group_name" disabled/>
+                </p>
+                <p>
+                    <label>Группа доступа</label><br>
+                    <select id="add_access_group_in_group_select">
+                        @foreach (AccessGroups accessGroup in Model.accessGroups)
+                        {
+                            <option id="@($"add_access_group_in_group_option_{accessGroup.accessGroup}")" class="add_access_group_in_group_option">@accessGroup.accessGroup</option>
+                        }
+                    </select>
+                </p>
+            </form>
+            <button class="btn btn-secondary" onclick="AddAccessGroupInGroup()">Добавить</button>
+            <p id="add_access_group_in_group_err" class="d-none err_msg">nope</p>
+        </div>
+
+
+        <!--Таблица подразделений-->
+        <div id="table_groups">
+            <h1>Подразделения</h1>
+            <table class="table_home">
+                <tr>
+                    <th>ID</th>
+                    <th>Подразделение</th>
+                    <th>Группы доступа</th>
+                    <td><button class="btn btn-secondary" onclick="GroupForm()">Добавить</button></td>
+                </tr>
+                @foreach (Groups group in Model.groups)
+                {
+                    <tr>
+                        <td>@group.Id</td>
+                        <td>@group.group</td>
+                        <td>
+                            <select id="@($"group{group.Id}_select_access_group")">
+                                @foreach (string accessGroup in group.accessGroups)
+                                {
+                                    <option>@accessGroup</option>
+                                }
+                            </select>
+                        </td>
+                        <td>
+                            @if (Model.accessGroups.Count > group.accessGroups.Count)
+                            {
+                                <button class="btn btn-secondary" onclick="AddAccessGroupInGroupForm(@group.Id)">Добавить группу доступа</button>
                             }
-                            if (group.accessGroups.Count > 0)
+                            @if (group.accessGroups.Count > 0)
                             {
                                 <button class="btn btn-secondary" onclick="RemoveAccessGroupFromGroup(@group.Id)">Удалить группу доступа</button>
                             }
-                        }
-                        <button class="btn btn-secondary" onclick="DeleteGroup(@group.Id)">Удалить</button>
-                    </td>
-                </tr>
-            }
-        </table>
-    </div>                                   
+                            
+                            <button class="btn btn-secondary" onclick="DeleteGroup(@group.Id)">Удалить</button>
+                        </td>
+                    </tr>
+                }
+            </table>
+        </div>
+    }
 
 
-    <!--форма добавления группы доступа-->
-    <div id="add_form_access_group" class="add_form d-none">
-        <form>
-            <h4>Добавить группу доступа</h4>
-            <p>
-                <label>Название группы доступа</label><br>
-                <input id="add_access_group_name" />
-            </p>
-        </form>
-        <button class="btn btn-secondary" onclick="AddAccessGroup()">Добавить</button>
-        <p id="add_acces_group_err" class="d-none err_msg">nope</p>
-    </div>
+    @if (HttpContext.Session.GetString("tab") == "access_groups")
+    {
+        <!--форма добавления группы доступа-->
+        <div id="add_form_access_group" class="add_form d-none">
+            <form>
+                <h4>Добавить группу доступа</h4>
+                <p>
+                    <label>Название группы доступа</label><br>
+                    <input id="add_access_group_name" />
+                </p>
+            </form>
+            <button class="btn btn-secondary" onclick="AddAccessGroup()">Добавить</button>
+            <p id="add_acces_group_err" class="d-none err_msg">nope</p>
+        </div>
 
 
-    <!--таблица групп доступа-->
-    <div id="table_access_groups" class="d-none">
-        <h1>Группы доступа</h1>
-        <table class="table_home">
-            <tr>
-                <th>ID</th>
-                <th>Группа доступа</th>
-                <td><button class="btn btn-secondary" onclick="AccessGroupForm()">Добавить</button></td>
-            </tr>
-            @foreach (AccessGroups accessGroup in Model.accessGroups)
-            {
+        <!--таблица групп доступа-->
+        <div id="table_access_groups">
+            <h1>Группы доступа</h1>
+            <table class="table_home">
                 <tr>
-                    <td>@accessGroup.Id</td>
-                    <td>@accessGroup.accessGroup</td>
-                    <td><button class="btn btn-secondary" onclick="DeleteAccessGroup(@accessGroup.Id)">Удалить</button></td>
+                    <th>ID</th>
+                    <th>Группа доступа</th>
+                    <td><button class="btn btn-secondary" onclick="AccessGroupForm()">Добавить</button></td>
                 </tr>
-            }
-        </table>
-    </div>
+                @foreach (AccessGroups accessGroup in Model.accessGroups)
+                {
+                    <tr>
+                        <td>@accessGroup.Id</td>
+                        <td>@accessGroup.accessGroup</td>
+                        <td><button class="btn btn-secondary" onclick="DeleteAccessGroup(@accessGroup.Id)">Удалить</button></td>
+                    </tr>
+                }
+            </table>
+        </div>
+    }
 
 
-    <!--форма добавления связи контроллер - группа доступа-->
-    <div id="add_relations_controllers_access_groups" class="add_form d-none">        
-        <form>
-            <h4>Добавить связь <br>контроллер - группа доступа</h4>
-            <p>
-                <label>Серийный номер контроллера</label><br>
-                <select id="add_relations_controllers_access_groups_sn">
-                    @foreach (Controllers controller in Model.controllers)
-                    {
-                        <option>@controller.sn</option>
-                    }
-                </select>
-            </p>
-            <p>
-                <label>Группа доступа</label><br>
-                <select id="add_relations_controllers_access_groups_group">
-                    @foreach (AccessGroups accessGroup in Model.accessGroups)
-                    {
-                        <option>@accessGroup.accessGroup</option>
-                    }
-                </select>
-            </p>
-            <p>
-                <label>Вход </label>
-                <input type="checkbox" id="add_relations_controllers_access_groups_in" />
-                <label> Выход </label>
-                <input type="checkbox" id="add_relations_controllers_access_groups_out" />
-            </p>
-        </form>
-        <button class="btn btn-secondary" onclick="AddRelationsControllersAccessGroups()">Добавить</button>
-        <p id="add_relations_controllers_access_groups_err" class="d-none err_msg">nope</p>
-    </div>
+    @if (HttpContext.Session.GetString("tab") == "relations_controllers_access_groups")
+    {
+        <!--форма добавления связи контроллер - группа доступа-->
+        <div id="add_relations_controllers_access_groups" class="add_form d-none">        
+            <form>
+                <h4>Добавить связь <br>контроллер - группа доступа</h4>
+                <p>
+                    <label>Контроллер</label><br>
+                    <select id="add_relations_controllers_access_groups_sn">
+                        @foreach (Controllers controller in Model.controllers)
+                        {
+                            @if (controller.name is null)
+                            {
+                                <option value="@controller.sn">@controller.sn</option>
+                            }
+                            else
+                            {
+                                <option value="@controller.sn">@controller.name</option>
+                            }
+                        }
+                    </select>
+                </p>
+                <p>
+                    <label>Группа доступа</label><br>
+                    <select id="add_relations_controllers_access_groups_group">
+                        @foreach (AccessGroups accessGroup in Model.accessGroups)
+                        {
+                            <option>@accessGroup.accessGroup</option>
+                        }
+                    </select>
+                </p>
+                <p>
+                    <label>Вход </label>
+                    <input type="checkbox" id="add_relations_controllers_access_groups_in" />
+                    <label> Выход </label>
+                    <input type="checkbox" id="add_relations_controllers_access_groups_out" />
+                </p>
+            </form>
+            <button class="btn btn-secondary" onclick="AddRelationsControllersAccessGroups()">Добавить</button>
+            <p id="add_relations_controllers_access_groups_err" class="d-none err_msg">nope</p>
+        </div>
 
 
-    <!--таблица связи контроллер - группа доступа-->
-    <div id="table_relations_controllers_access_groups" class="d-none">
-        <h1>Связи контроллер - группа доступа</h1>
-        <br>
-        <input size="50" id="filter_relations_controllers_access_groups" />
-        <button class="btn btn-secondary" onclick="FilterRelationsControllersAccessGroups()">Поиск</button>
-        <table class="table_home">
-            <tr>
-                <th>ID</th>
-                <th>Серийный номер контроллера</th>
-                <th>Группа доступа</th>
-                <th>Считыватель</th>
-                <td><button class="btn btn-secondary" onclick="RelationsControllersAccessGroupsForm()">Добавить</button></td>
-            </tr>
-            @foreach (RelationsControllersAccessGroups relation in Model.relationControllersAccessGroups)
-            {
-                <tr id="@($"relation{relation.Id}_controllers_access_groups_tr")" class="relations_controllers_access_groups_tr">
-                    <td>@relation.Id</td>
-                    <td>@relation.sn</td>
-                    <td>@relation.accessGroup</td>
-                    <td>@relation.reader</td>
-                    <td><button class="btn btn-secondary" onclick="DeleteRelationsControllersAccessGroups(@relation.Id)">Удалить</button></td>
-                </tr>                
-            }
-        </table>           
-    </div>
+        <!--таблица связи контроллер - группа доступа-->
+        <div id="table_relations_controllers_access_groups">
+            <h1>Связи контроллер - группа доступа</h1>
+            <br>
+            <input size="50" id="filter_relations_controllers_access_groups" onchange="FilterRelationsControllersAccessGroups()" />
+            <button class="btn btn-secondary" onclick="FilterRelationsControllersAccessGroups()">Поиск</button>
+            <table class="table_home">
+                <tr>
+                    <th>ID</th>
+                    <th>SN</th>
+                    <th>Имя контроллера</th>
+                    <th>Группа доступа</th>
+                    <th>Считыватель</th>
+                    <td><button class="btn btn-secondary" onclick="RelationsControllersAccessGroupsForm()">Добавить</button></td>
+                </tr>
+                @foreach (RelationsControllersAccessGroups relation in Model.relationsControllersAccessGroups)
+                {
+                    <tr id="@($"relation{relation.Id}_controllers_access_groups_tr")" class="relations_controllers_access_groups_tr">
+                        <td>@relation.Id</td>
+                        <td>@relation.sn</td>
+                        <td>@Model.controllers.FirstOrDefault(p => p.sn == relation.sn).name</td>
+                        <td>@relation.accessGroup</td>
+                        <td>
+                            @if (relation.reader == 1) { Write("Вход"); }
+                            else { Write("Выход"); }
+                        </td>
+                        <td><button class="btn btn-secondary" onclick="DeleteRelationsControllersAccessGroups(@relation.Id)">Удалить</button></td>
+                    </tr>
+                }
+            </table>           
+        </div>
+    }
 }

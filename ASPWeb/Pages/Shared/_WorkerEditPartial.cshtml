@@ -1,0 +1,106 @@
+﻿@using ASPWeb.Models;
+@model Workers
+<div class="modal-content">
+    <div class="modal-header">
+        <h5 class="modal-title" id="ModalLabel_worker_edit">
+            @if (Model.Id == 0) { Write("Добавление сотрудника"); }
+            else { Write($"Редактирование ID сотрудника: {Model.Id}"); }
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    </div>
+    <div class="modal-body">
+        @if (Model.Image is not null)
+        {
+            <div class="Modal_worker_edit_image">
+                <img src="~/images/@Model.Image" width="200"><br><br>
+                <button class="btn btn-secondary" onclick="DeleteImage(@Model.Id)">Удалить Фотографию</button>
+            </div>
+        }
+        <p>
+            <label>ИДН</label><br>
+            <input id="Modal_worker_edit_worker" value="@Model.worker" type="number" />
+        </p>
+        <p>
+            <label>Фамилия</label><br>
+            <input id="Modal_worker_edit_lastname" value="@Model.LastName" />
+        </p>
+         <p>
+            <label>Имя</label><br>
+            <input id="Modal_worker_edit_firstname" value="@Model.FirstName" />
+        </p>
+        <p>
+            <label>Отчество</label><br>
+            <input id="Modal_worker_edit_fathername" value="@Model.FatherName" />
+        </p>
+        <p>
+            <label>Должность</label><br>
+            <input id="Modal_worker_edit_position" value="@Model.position" />
+        </p>       
+        <p>
+            <label>Фотография</label>
+            <form id="Image_edit" asp-page="Index" asp-page-handler="SetImage" method="post" enctype="multipart/form-data">
+                <input type="file" id="formFile" name="formFile" />
+            </form>
+        </p>
+        <p>
+            <label>Группа</label><br>
+            <select id="Modal_worker_edit_select_group">
+                @if (ViewData["groups"] is List<Groups> groups)
+                {
+                    @foreach (Groups group in groups)
+                    {
+                        @if (Model.group == group.group)
+                        {
+                            <option selected>@group.group</option>
+                        }
+                        else
+                        {
+                            <option>@group.group</option>
+                        }
+                    }
+                }
+            </select>
+        </p>
+        @if (Model.Id != 0)
+        {
+            <p>
+                <input id="lock_date" type="datetime-local" value="@Model.lockDate" />
+                <button id="add_lock_date_button" class="btn btn-secondary" @if(Model.lockDate is not null){Write("disabled");} onclick="AddLockDate(@Model.Id)">Заблокировать</button>
+                <button id="delete_lock_date_button" class="btn btn-secondary" @if(Model.lockDate is null){Write("disabled");} onclick="DeleteLockDate(@Model.Id)">Разблокировать</button>
+            </p>
+        }
+        <p>
+            <label>Комментарий</label><br>
+            <textarea id="Modal_worker_edit_comment" cols="40" rows="10">@Model.comment</textarea>
+        </p>
+        @if (Model.Id == 0)
+        {
+            <p>
+                <label>Карта(необязательно)</label><br>
+                <input id="add_worker_card" />
+            </p>
+            <button id="button_worker_read_card" class="btn btn-secondary" onclick="AddWorkerReadCard()">Считать карту</button>
+            <select id="add_worker_select_card" onchange="AddWorkerСhooseCard()" onfocus="AddWorkerСhooseCard()">
+                @if (ViewData["emptyCards"] is List<Cards> emptyCards)
+                {
+                    foreach (Cards card in emptyCards)
+                    {
+                        <option value="@card.card">@card.card</option>
+                    }
+                }
+            </select>
+        }
+        <p id="Modal_worker_edit_err" class="d-none err_msg">nope</p>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+        @if (Model.Id == 0)
+        {
+            <button type="button" class="btn btn-primary" onclick="AddWorker()">Добавить</button>
+        }
+        else
+        {
+            <button type="button" class="btn btn-primary" onclick="EditWorker(@Model.Id)">Сохранить</button>
+        }
+    </div>
+</div>

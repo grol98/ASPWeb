@@ -1,0 +1,16 @@
+﻿@using ASPWeb.Models;
+@model List<EventsWeb>
+
+@foreach (EventsWeb Event in Model)
+{
+    <tr id="@($"event{Event.Id}")" class="event_tr">
+        <td>@Event.Id</td>
+        <td>@Event.name</td>
+        <td>@Event.Event</td>
+        <td>@Event.card</td>
+        <td>@Event.workerId</td>
+        <td>@Event.fio</td>
+        <td>@Event.time</td>
+        <td>@Event.flag</td>
+    </tr>
+}

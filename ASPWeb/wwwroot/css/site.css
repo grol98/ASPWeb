@@ -39,3 +39,8 @@ body {
     color: red;
     font-size: 14px;
 }
+
+.Modal_worker_edit_image {
+    position: absolute;
+    left: 250px;
+}

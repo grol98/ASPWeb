@@ -1,0 +1,43 @@
+﻿@using ASPWeb.Models;
+@model Workers
+
+
+<td>@Model.Id</td>
+<td>@Model.worker</td>
+<td>@String.Concat(new string[] { Model.LastName, " ", Model.FirstName, " ", Model.FatherName })</td>
+<td>
+    @if (Model.Image is not null)
+    {
+        <img src="~/images/@Model.Image" loading="lazy" width="200">
+    }
+</td>
+<td>@Model.position</td>
+<td>@Model.comment</td>
+<td>@Model.group</td>
+<td>
+    <select id="@($"worker{Model.Id}_select_card")">
+        @foreach (Cards card in Model.cards)
+        {
+            <option>@card.card</option>
+        }
+    </select>
+</td>
+<td align="center">
+    <label><input type="radio" class="radio_access" worker-id="@Model.Id" name="@($"radio_worker{Model.Id}")" value="1" @if(Model.personalCheck == 1){Write("checked");}>Подразделение</label>
+    <label><input type="radio" class="radio_access" worker-id="@Model.Id" name="@($"radio_worker{Model.Id}")" value="2" @if(Model.personalCheck == 2){Write("checked");}>Группы доступа</label>
+    <label><input type="radio" class="radio_access" worker-id="@Model.Id" name="@($"radio_worker{Model.Id}")" value="3" @if(Model.personalCheck == 3){Write("checked");}>Точки</label>
+    <br><br>
+
+    <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#Modal_worker_access_groups" onclick="ShowModalAccessGroups(@Model.Id)">Группы доступа</button><br><br>
+    <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#Modal_worker_access_points" onclick="ShowModalAccessPoints(@Model.Id)">Точки доступа</button><br><br>
+</td>
+<td>
+    <button class="btn btn-secondary" onclick="DeleteWorker(@Model.Id)">Удалить</button><br>
+    <button type="button" worker-id="@Model.Id" class="btn btn-secondary edit_worker" data-bs-toggle="modal" data-bs-target="#Modal_worker_edit">Редактировать</button><br>
+    <button type="button" worker-id="@Model.Id" class="btn btn-secondary" data-bs-toggle="modal" onclick="AddCardInWorkerForm(@Model.Id)" data-bs-target="#Modal_add_card_in_worker">Добавить карту</button><br>
+
+    @if (Model.cards.Count() > 0)
+    {
+        <button class="btn btn-secondary" onclick="RemoveCardFromWorker(@Model.Id)">Убрать карту</button>
+    }
+</td>

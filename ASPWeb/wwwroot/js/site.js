@@ -6,18 +6,24 @@
 $(document).ready(() => {
     $(`#table_${localStorage["page"]}`).toggleClass('d-none', false)
     $(`#button_${localStorage["page"]}`).toggleClass('btn-secondary', false)
-    $(`#button_${localStorage["page"]}`).toggleClass('btn-primary', true)
+    $(`#button_${localStorage["page"]}`).toggleClass('btn-primary', true)   
 
-    if (localStorage["workers_details"] == undefined) {
-        localStorage["workers_details"] = JSON.stringify([])
+    if (localStorage["page"] == "workers") {
+        if (localStorage["workers_details"] == undefined) {
+            localStorage["workers_details"] = JSON.stringify([])
+        }
+        var det = $.parseJSON(localStorage["workers_details"])
+        for (let i = 0; i < det.length; i++) {
+            $(`#${det[i]}`).attr('open', true)
+        }
     }
-    var det = $.parseJSON(localStorage["workers_details"])
-    for (let i = 0; i < det.length; i++) {
-        $(`#${det[i]}`).attr('open', true)
-    }
+
+    //if (localStorage["page"] == "events") {
+    //    $("#filter_events_select_group").prop("selectedIndex", -1);
+    //}
 
     $('#nav button').on('click', function () {
-        CloseForms($(this).attr('id').replace('button_', ''))
+        ChangeTab($(this).attr('id').replace('button_', ''))
         $('#nav button').removeClass('btn-primary')
         $('#nav button').toggleClass('btn-secondary', true)
         $(this).toggleClass('btn-secondary')
@@ -50,27 +56,44 @@ $(document).ready(() => {
     })
 })
 
-// Закрывает формы
-function CloseForms(tableName) {
-    $('#table_users').toggleClass('d-none', true)
-    $('#table_workers').toggleClass('d-none', true)
-    $('#table_cards').toggleClass('d-none', true)
-    $('#table_controllers').toggleClass('d-none', true)
-    $('#table_events').toggleClass('d-none', true)
-    $('#table_groups').toggleClass('d-none', true)
-    $('#table_access_groups').toggleClass('d-none', true)
-    $('#table_relations_controllers_access_groups').toggleClass('d-none', true)
-    $(`#table_${tableName}`).toggleClass('d-none', false)
-    localStorage["page"] = tableName
 
-    $('#add_users').toggleClass('d-none', true)
-    $('#add_workers').toggleClass('d-none', true)
-    $('#add_card_in_worker').toggleClass('d-none', true)
-    $('#add_cards').toggleClass('d-none', true)
-    $('#add_form_group').toggleClass('d-none', true)
-    $('#add_form_access_group').toggleClass('d-none', true)
-    $('#add_access_group_in_group').toggleClass('d-none', true)
-    $('#add_relations_controllers_access_groups').toggleClass('d-none', true)
+//function Scroll() {
+//    $('html, body').animate({
+//        scrollTop: $("#worker4542").offset().top
+//    }, 100);
+//}
+
+function LogOn() {    
+    let login = $("#user_login").attr('value')
+    let password = $("#user_password").attr('value')
+    $.ajax({
+        url: '/?handler=LogOn',
+        method: "GET",
+        data: { login: login, password: password, tab: localStorage["page"] },
+        success: function (success) {
+            if (success == 'true') {
+                location.reload()
+            }
+            else {
+                $("#user_login").val() = success
+            }
+        }
+    });
+}
+
+// Закрывает формы
+function ChangeTab(tableName) {
+    localStorage["page"] = tableName
+    $.ajax({
+        url: '/?handler=ChangePage',
+        method: "GET",
+        data: { tab: tableName },
+        success: function (success) {
+            if (success == 'true') {
+                location.reload()
+            }
+        }
+    });
 }
 
 // Удаление пользователя
@@ -97,6 +120,27 @@ function DeleteWorker(workerId) {
             success: function (success) {
                 if (success == 'true') {
                     location.reload()
+                }
+            }
+        });
+    }
+}
+
+// Удаление сотрудника
+function DeleteImage(workerId) {
+    if (confirm(`Вы уверены что хотите удалить эту фотографию`)) {
+        $.ajax({
+            url: '/?handler=DeleteImage',
+            method: "GET",
+            data: { workerId: workerId },
+            success: function (success) {
+                if (success == 'true') {
+                    location.reload()
+                }
+                else {
+                    let err = $(`#Modal_worker_edit_err`)
+                    err.toggleClass('d-none', false)
+                    err.html(success)
                 }
             }
         });
@@ -221,15 +265,15 @@ function AccessGroupForm() {
 function RelationsControllersAccessGroupsForm() {
     $('#add_relations_controllers_access_groups').toggleClass('d-none')
     $('#add_relations_controllers_access_groups_err').toggleClass('d-none', true)
-    $('#add_relations_controllers_access_groups_sn').prop('selectedIndex', -1)
-    $('#add_relations_controllers_access_groups_group').prop('selectedIndex', -1)
+    //$('#add_relations_controllers_access_groups_sn').prop('selectedIndex', -1)
+   // $('#add_relations_controllers_access_groups_group').prop('selectedIndex', -1)
 }
 
 // Показать форму добавления карты сотруднику
 function AddCardInWorkerForm(workerId) {
     $('#add_card_in_worker').toggleClass('d-none', false)
     $('#add_card_in_worker_err').toggleClass('d-none', true)
-    let cardId = document.getElementById('add_card_in_worker_idn')
+    let cardId = document.getElementById('add_card_in_worker_id')
     cardId.value = workerId
 }
 
@@ -255,6 +299,45 @@ function AddAccessGroupInGroupForm(groupId) {
     });
 }
 
+
+// Показывает форму изменения групп доступа
+function ShowModalAccessGroups(workerId) {
+    $('#ModalLabel_worker_access_groups').html(`Индивидуальные группы доступа для ID сотрудника: ${workerId}`);
+    $('#ModalLabel_worker_access_groups').attr(`worker-id`, `${workerId}`);
+    $.ajax({
+        url: '/?handler=ShowModalAccessGroups',
+        method: "GET",
+        data: { workerId: workerId },
+        success: function (data) {
+            var result = $.parseJSON(data);
+            $('.Modal_worker_access_groups_checkbox').prop('checked', false);
+            for (let i = 0; i < result.length; i++) {
+                $(`#${result[i]}`).prop('checked', true);
+            }
+        }
+    });
+}
+
+
+// Показывает форму изменения точек доступа
+function ShowModalAccessPoints(workerId) {
+    $('#ModalLabel_worker_access_points').html(`Индивидуальные точки доступа для ID сотрудника: ${workerId}`);
+    $('#ModalLabel_worker_access_points').attr(`worker-id`, `${workerId}`);
+    $.ajax({
+        url: '/?handler=ShowModalAccessPoints',
+        method: "GET",
+        data: { workerId: workerId },
+        success: function (data) {
+            var result = $.parseJSON(data);
+            $('.Modal_worker_access_points_checkbox').prop('checked', false);
+            for (let i = 0; i < result.length; i++) {
+                $(`#${result[i]}`).prop('checked', true);
+            }
+        }
+    });
+}
+
+
 // Добавление пользователя
 function AddUser() {
     let insertLogin = document.getElementById('add_user_log')
@@ -279,32 +362,50 @@ function AddUser() {
     });
 }
 
+
 // Добавление сотрудника
 function AddWorker() {
-    let insertWorkerIdn = document.getElementById('add_worker_idn')
-    let insertWorkerFio = document.getElementById('add_worker_fio')
-    let insertWorkerPosition = document.getElementById('add_worker_position')
-    let insertWorkerComment = document.getElementById('add_worker_comment')
-    let insertWorkerCard = document.getElementById('add_worker_card')
-    let selectGroup = document.getElementById('add_worker_select_group')
-    let workerIdn = insertWorkerIdn.value
-    let workerFio = insertWorkerFio.value
-    let workerPosition = insertWorkerPosition.value
-    let workerComment = insertWorkerComment.value
-    let workerCard = insertWorkerCard.value
-    let workerGroup = selectGroup.value
+    var formData = new FormData(Image_edit)
+
     $.ajax({
-        url: '/?handler=AddWorker',
-        method: "GET",
-        data: { worker: workerIdn, fio: workerFio, card: workerCard, position: workerPosition, comment: workerComment, group: workerGroup },
-        success: function (success) {
-            if (success == 'true') {
-                location.reload()
+        type: 'POST',
+        url: '/?handler=SetImage',
+        data: formData,
+        cache: false,
+        contentType: false,
+        processData: false,
+        success: function (data) {
+            if (data == 'false') {
+                let err = $(`#Modal_worker_edit_err`)
+                err.toggleClass('d-none', false)
+                err.html(data)
             }
             else {
-                $('#add_workers_err').toggleClass('d-none', false)
-                let err = document.getElementById('add_workers_err')
-                err.innerHTML = success
+                let worker = $(`#Modal_worker_edit_worker`).val()
+                let LastName = $(`#Modal_worker_edit_lastname`).val()
+                let FirstName = $(`#Modal_worker_edit_firstname`).val()
+                let FatherName = $(`#Modal_worker_edit_fathername`).val()
+                let position = $(`#Modal_worker_edit_position`).val()
+                let group = $(`#Modal_worker_edit_select_group option:selected`).text()
+                let comment = $(`#Modal_worker_edit_comment`).val()
+                let card = $('#add_worker_card').val()
+                $.ajax({
+                    url: '/?handler=AddWorker',
+                    method: "GET",
+                    data: { worker: worker, LastName: LastName, FirstName: FirstName, FatherName: FatherName, card: card, position: position, group: group, comment: comment, image: data },
+                    success: function (success) {
+                        if (success == 'true') {
+                            location.reload()
+                        }
+                        else {
+                            console.log(success)
+                            let err = $(`#Modal_worker_edit_err`)
+                            err.toggleClass('d-none', false)
+                            err.html(success)
+                        }
+
+                    }
+                });
             }
         }
     });
@@ -318,71 +419,77 @@ function AddWorkerСhooseCard() {
 }
 
 // Считывание карты при добавлении сотрудника
-function AddWorkerReadCard() {
-    $('button').attr('disabled', true)
-    $.ajax({
-        url: '/?handler=ReadCard',
-        method: "GET",
-        data: {},
-        success: function (success) {
-            $('button').attr('disabled', false)
-            if (success == 'false') {
-                $('#add_workers_err').toggleClass('d-none', false)
-                let err = document.getElementById('add_workers_err')
-                err.innerHTML = 'не удалось считать карту'
-            }
-            else {
-                let cardId = document.getElementById('add_worker_card')
-                cardId.value = success
-            }
+async function AddWorkerReadCard() {
+    if (!this.serialPortHandler.isOpened) {
+        await this.serialPortHandler.open();
+    }
+    const message = await this.serialPortHandler.read()
+    let cardId = document.getElementById('add_worker_card')
+    cardId.value = message;
+}
         }
     });
 }
 
 // Добавления карты сотруднику
 function AddCardInWorker() {
-    let insertCard = document.getElementById('add_card_in_worker_card')
-    let insertWorker = document.getElementById('add_card_in_worker_idn')
-    let card = insertCard.value
-    let worker = insertWorker.value
+    let card = $(`#add_card_in_worker_card`).val();
+    let workerId = $(`#add_card_in_worker_id`).val();
+    if ($(`#worker${workerId}_select_card option`).length > 0 && !confirm("Уверены, что хотите создать пропуск? У сотрудника он уже есть.")) {
+        $(`#Modal_add_card_in_worker`).modal('toggle');
+        return;
+    }
+    
     $.ajax({
         url: '/?handler=AddCardInWorker',
         method: "GET",
-        data: { card: card, worker: worker },
+        data: { card: card, workerId: workerId },
         success: function (success) {
             if (success == 'newcard') {
-                alert('Этой карты не было в базе данных, поэтому была создана новая карта')
-                location.reload()
-            }
+                alert('Этой карты не было в базе данных, поэтому была создана новая карта');
+                $(`#worker${workerId}_select_card`).append(`<option value="${card}">${card}</option>`);
+                $(`#Modal_add_card_in_worker`).modal('toggle');
+                if ($(`#worker${workerId}_select_card option`).length == 1) {
+                    $(`#remove_card${workerId}`).toggleClass('d-none', false);
+                }
             if (success == 'true') {
                 location.reload()
             }
+            else if (success == 'true') {
+                $(`#worker${workerId}_select_card`).append(`<option value="${card}">${card}</option>`);
+                $(`#Modal_add_card_in_worker`).modal('toggle');
+                $(`#add_card_in_worker_select_card option[value="${card}"]`).remove();
+                if ($(`#worker${workerId}_select_card option`).length == 1) {
+                    $(`#remove_card${workerId}`).toggleClass('d-none', false);
+                }
+            }
             else {
                 $('#add_card_in_worker_err').toggleClass('d-none', false)
-                let err = document.getElementById('add_card_in_worker_err')
-                err.innerHTML = success
+                let err = document.getElementById('add_card_in_worker_err');
+                err.innerHTML = success;
             }
         }
     });
 }
 
 // Убирание карты сотрудника
-function RemoveCardFromWorker(worker, Id) {
-    if (confirm("Вы уверены что хотите убрать эту карту")) {
-        let selectElement = document.getElementById(`worker${Id}_select_card`)
-        let card = selectElement.value
+function RemoveCardFromWorker(workerId) {
+    if (confirm("Вы уверены что хотите убрать эту карту")) {        
+        let card = $(`#worker${workerId}_select_card`).val();
         $.ajax({
             url: '/?handler=RemoveCardFromWorker',
             method: "GET",
-            data: { cardId: card, worker: worker },
+            data: { card: card, workerId: workerId },
             success: function (success) {
                 if (success == 'true') {
-                    location.reload()
+                    $(`#worker${workerId}_select_card option[value='${card}']`).remove();
+                    $(`#add_card_in_worker_select_card`).append(`<option value="${card}">${card}</option>`);
+                    if ($(`#worker${workerId}_select_card option`).length == 0) {
+                        $(`#remove_card${workerId}`).toggleClass('d-none', true);
+                    }
                 }
                 else {
-                    $('#add_card_in_worker_err').toggleClass('d-none', false)
-                    let err = document.getElementById('add_card_in_worker_err')
-                    err.innerHTML = success
+                    alert(success);
                 }
             }
         });
@@ -396,32 +503,54 @@ function AddCardInWorkerСhooseCard() {
     cardId.value = selectElement.value
 }
 
+
+this.serialPortHandler = new SerialPortHandler(
+    { baudRate: 9600 });
 // Считывание карты при добавлении карты сотруднику
-function AddCardInWorkerReadCard() {
-    $('button').attr('disabled', true)
-    $.ajax({
-        url: '/?handler=ReadCard',
-        method: "GET",
-        data: {},
-        success: function (success) {
-            $('button').attr('disabled', false)
-            if (success == 'false') {
-                $('#add_card_in_worker_err').toggleClass('d-none', false)
-                let err = document.getElementById('add_card_in_worker_err')
-                err.innerHTML = 'не удалось считать карту'
-            }
-            else {
-                let cardId = document.getElementById('add_card_in_worker_card')
-                cardId.value = success
-            }
-        }
-    });
+async function AddCardInWorkerReadCard() {
+    if (!this.serialPortHandler.isOpened) {
+        await this.serialPortHandler.open();
+    }
+    const message = await this.serialPortHandler.read()
+    let cardId = document.getElementById('add_card_in_worker_card')
+    cardId.value = message;
 }
 
-// Изменение индивидуальных групп доступа
-function ChangeAccessGroups(workerId) {
+
+// Удаление всех карт из контроллеров
+function DeleteAllCardFromController() {
     let checkboxJson = [];
-    $(`.Modal_worker_access_groups${workerId}_checkbox:checkbox:checked`).each(function () {
+    $(`.Modal_delete_cards_from_controllers_checkbox:checkbox:checked`).each(function () {
+        checkboxJson.push($(this).val());
+    })
+    $.ajax({
+        url: '/?handler=DeleteAllCardFromController',
+        method: "GET",
+        data: { checkboxJson: JSON.stringify(checkboxJson) }
+    });
+    $('#Modal_delete_cards_from_controllers').modal('toggle');
+}
+
+// Загрузка всех карт в контроллеров
+function AddAllCardInController() {
+    let checkboxJson = [];
+    $(`.Modal_add_cards_in_controllers_checkbox:checkbox:checked`).each(function () {
+        checkboxJson.push($(this).val());
+    })
+    $.ajax({
+        url: '/?handler=AddAllCardInController',
+        method: "GET",
+        data: { checkboxJson: JSON.stringify(checkboxJson) }
+    });
+    $('#Modal_add_cards_in_controllers').modal('toggle');
+}
+
+
+// Изменение индивидуальных групп доступа
+function ChangeAccessGroups() {
+    let workerId = $('#ModalLabel_worker_access_groups').attr('worker-id');
+    let checkboxJson = [];
+    $(`.Modal_worker_access_groups_checkbox:checkbox:checked`).each(function () {
         checkboxJson.push($(this).val());
     })
     $.ajax({
@@ -430,55 +559,126 @@ function ChangeAccessGroups(workerId) {
         data: { workerId: workerId, checkboxJson: JSON.stringify(checkboxJson) },
         success: function (data) {
             if (data == 'true') {
-                location.reload()
+                $('#Modal_worker_access_groups').modal('toggle');
             }
         }
     });
 }
 
-// Изменение индивидуальных групп доступа
-function ChangePersonalCheck(workerId) {
+// Изменение индивидуальных точек доступа
+function ChangeAccessPoints() {
+    let workerId = $('#ModalLabel_worker_access_points').attr('worker-id')
+    let checkboxJson = [];
+    $(`.Modal_worker_access_points_checkbox:checkbox:checked`).each(function () {
+        checkboxJson.push($(this).val());
+    })
     $.ajax({
-        url: '/?handler=ChangePersonalCheck',
+        url: '/?handler=ChangeAccessPoints',
         method: "GET",
-        data: { workerId: workerId }
+        data: { workerId: workerId, checkboxJson: JSON.stringify(checkboxJson) },
+        success: function (data) {
+            if (data == 'true') {
+                $('#Modal_worker_access_points').modal('toggle');
+            }
+        }
     });
 }
+
 
 // Редактирование сотрудника
-function RedactWorker(workerId) {
-    let workerNew = $(`#Modal_worker_redact${workerId}_worker`).val()
-    let fio = $(`#Modal_worker_redact${workerId}_fio`).val()
-    let position = $(`#Modal_worker_redact${workerId}_position`).val()
-    let group = $(`#Modal_worker_redact${workerId}_select_group option:selected`).text()
-    let comment = $(`#Modal_worker_redact${workerId}_comment`).val()
+function EditWorker(id) {
+    var formData = new FormData(Image_edit)
+
     $.ajax({
-        url: '/?handler=RedactWorker',
-        method: "GET",
-        data: { id: workerId, workerNew: workerNew, fio: fio, position: position, group: group, comment: comment },
-        success: function (success) {
-            if (success == 'true') {
-                location.reload()
+        type: 'POST',
+        url: '/?handler=SetImage',
+        data: formData,
+        cache: false,
+        contentType: false,
+        processData: false,
+        success: function (data) {
+            if (data == 'false') {
+                let err = $(`#Modal_worker_edit_err`)
+                err.toggleClass('d-none', false)
+                err.html(data)
             }
             else {
-                let err = $(`#Modal_worker_redact${workerId}_err`)
-                err.toggleClass('d-none', false)
-                err.html(success)
+                let workerNew = $(`#Modal_worker_edit_worker`).val()
+                let LastName = $(`#Modal_worker_edit_lastname`).val()
+                let FirstName = $(`#Modal_worker_edit_firstname`).val()
+                let FatherName = $(`#Modal_worker_edit_fathername`).val()
+                let position = $(`#Modal_worker_edit_position`).val()
+                let group = $(`#Modal_worker_edit_select_group option:selected`).text()
+                let comment = $(`#Modal_worker_edit_comment`).val()
+                $.ajax({
+                    url: '/?handler=EditWorker',
+                    method: "GET",
+                    data: { id: id, workerNew: workerNew, LastName: LastName, FirstName: FirstName, FatherName: FatherName, position: position, group: group, comment: comment, image: data },
+                    success: function (success) {
+                        if (success.startsWith("Error")) {
+                            console.log(success);
+                            let err = $(`#Modal_worker_edit_err`);
+                            err.toggleClass('d-none', false);
+                            err.html(success);
+                        }
+                        else {
+                            $(`#worker${id}`).html(success);
+                            $('#Modal_worker_edit').modal('toggle');
+                        }
+                        
+                    }
+                });
             }
         }
     });
 }
+
+
+// Добавление даты блокировки
+function DeleteLockDate(id) {
+    $(`#lock_date`).val("");
+    $.ajax({
+        url: '/?handler=DeleteLockDate',
+        method: "GET",
+        data: { id: id }
+    });
+    $('#add_lock_date_button').prop('disabled', false);
+    $('#delete_lock_date_button').prop('disabled', true);
+    
+}
+
+// Добавление даты блокировки
+function AddLockDate(id) {
+    var lockDate = $(`#lock_date`).val();
+    $.ajax({
+        url: '/?handler=AddLockDate',
+        method: "GET",
+        data: { id: id, lockDate: lockDate },
+         success: function (success) {
+            if (success == 'true') {
+                $('#Modal_worker_edit_err').toggleClass('d-none', true);
+                $('#add_lock_date_button').prop('disabled', true);
+                $('#delete_lock_date_button').prop('disabled', false);
+            }
+            else {
+                $('#Modal_worker_edit_err').toggleClass('d-none', false);
+                $('#Modal_worker_edit_err').html(success);
+            }
+        }
+    });
+}
+
 
 // Добавление карты
 function AddCard() {
     let insertCard = document.getElementById('add_card_id')
     let insertWorker = document.getElementById('add_card_worker')
     let card = insertCard.value
-    let worker = insertWorker.value
+    let workerId = insertWorker.value
     $.ajax({
         url: '/?handler=AddCard',
         method: "GET",
-        data: { card: card, worker: worker},
+        data: { card: card, workerId: workerId },
         success: function (success) {
             if (success == 'true') {
                 location.reload()
@@ -492,26 +692,15 @@ function AddCard() {
     });
 }
 
+
 // Считывание карты при добавлении карты
-function ReadCard() {
-    $('button').attr('disabled', true)
-    $.ajax({
-        url: '/?handler=ReadCard',
-        method: "GET",
-        data: {},
-        success: function (success) {
-            $('button').attr('disabled', false)
-            if (success == 'false') {
-                $('#add_cards_err').toggleClass('d-none', false)
-                let err = document.getElementById('add_cards_err')
-                err.innerHTML = 'не удалось считать карту'
-            }
-            else {
-                let cardId = document.getElementById('add_card_id')
-                cardId.value = success
-            }
-        }
-    });
+async function ReadCard() {
+    if (!this.serialPortHandler.isOpened) {
+        await this.serialPortHandler.open();
+    }
+    const message = await this.serialPortHandler.read()
+    let cardId = document.getElementById('add_card_id')
+    cardId.value = message;
 }
 
 // Добавление группы
@@ -601,7 +790,7 @@ function AddAccessGroup() {
 
 // Добавление связи контроллер - группа доступа
 function AddRelationsControllersAccessGroups() {
-    let sn = $(`#add_relations_controllers_access_groups_sn option:selected`).text()
+    let sn = $(`#add_relations_controllers_access_groups_sn option:selected`).val()
     let accessGroup = $(`#add_relations_controllers_access_groups_group option:selected`).text()
     let cbIn = $(`#add_relations_controllers_access_groups_in`).is(':checked')
     let cbOut = $(`#add_relations_controllers_access_groups_out`).is(':checked')
@@ -626,11 +815,13 @@ function AddRelationsControllersAccessGroups() {
 // Поиск по картам
 function FilterCard() {
     let filter = document.getElementById('filter_card').value
+    $('.table-card-spinner').removeClass('d-none');
     $.ajax({
         url: '/?handler=FilterCard',
         method: "GET",
         data: { filter: filter },
         success: function (data) {
+            $('.table-card-spinner').addClass('d-none');
             if (data == 'false') {
                 $('.card_tr').toggleClass('d-none', false)            
             }
@@ -642,18 +833,25 @@ function FilterCard() {
                     $('#card' + result[i]).toggleClass('d-none', false)
                 }
             }
+        },
+        error: (error) => {
+            $('.table-card-spinner').addClass('d-none');
+            console.log(error.responseText)
         }
     });
 }
 
+
 // Поиск по сотрудникам
 function FilterWorker() {
     let filter = document.getElementById('filter_worker').value
+    $('.table-card-spinner').removeClass('d-none');
     $.ajax({
         url: '/?handler=FilterWorker',
         method: "GET",
         data: { filter: filter },
         success: function (data) {
+            $('.table-card-spinner').addClass('d-none');
             if (data == 'false') {
                 $('.worker_tr').toggleClass('d-none', false) 
                 $('.workers_groups').toggleClass('d-none', false)
@@ -671,6 +869,32 @@ function FilterWorker() {
         }
     });
 }
+
+
+// Поиск сотрудников с комментариями
+function FindComments() {
+    $.ajax({
+        url: '/?handler=FindComments',
+        method: "GET",
+        success: function (data) {
+            if (data == 'false') {
+                $('.worker_tr').toggleClass('d-none', false)
+                $('.workers_groups').toggleClass('d-none', false)
+            }
+            else {
+                var result = $.parseJSON(data)
+                $('.worker_tr').toggleClass('d-none', true)
+                $('.workers_groups').toggleClass('d-none', true)
+                for (let i = 0; i < result.length; i++) {
+                    const words = result[i].split(';')
+                    $(`#worker${words[0]}`).toggleClass('d-none', false)
+                    $(`#workers_group_${words[1]}`).toggleClass('d-none', false)
+                }
+            }
+        }
+    });
+}
+
 
 // Поиск по связям контроллер - группа доступа
 function FilterRelationsControllersAccessGroups() {
@@ -693,3 +917,151 @@ function FilterRelationsControllersAccessGroups() {
         }
     });
 }
+
+
+// Поиск по событиям
+function FilterEvents() {
+    let checkboxJson = [];
+    $(`.Modal_filter_sn_checkbox:checkbox:checked`).each(function () {
+        checkboxJson.push($(this).val());
+    })
+    var workerId = $('#filter_events_worker').val();
+    var fio = $('#filter_events_fio').val();
+    var dateBeg = $('#filter_events_date_beg').val();
+    var dateEnd = $('#filter_events_date_end').val();
+    let group = $('#filter_events_select_group').val();
+    $('.table-event-spinner').removeClass('d-none');
+    $.ajax({
+        url: '/?handler=FilterEvents',
+        method: "GET",
+        data: { snCheckboxJson: JSON.stringify(checkboxJson), workerId: workerId, fio: fio, group: group, dateBeg: dateBeg, dateEnd: dateEnd },
+        success: function (html) {
+            $('.table-event-spinner').addClass('d-none');
+            $('#table_events tbody').html(html);
+        },
+        error: () => {
+            $('.table-event-spinner').addClass('d-none');
+            $('#table_events tbody').html('<p>Ошибка получения данных</p>');
+        }
+    });
+}
+
+
+// Отчет по событиям
+function ReportEvents() {
+    let checkboxJson = [];
+    $(`.Modal_filter_sn_checkbox:checkbox:checked`).each(function () {
+        checkboxJson.push($(this).val());
+    })
+    var workerId = $('#filter_events_worker').val();
+    var fio = $('#filter_events_fio').val();
+    var dateBeg = $('#filter_events_date_beg').val();
+    var dateEnd = $('#filter_events_date_end').val();
+    let group = $('#filter_events_select_group').val();
+    $('.table-event-spinner').removeClass('d-none');
+    $.ajax({
+        url: '/?handler=ReportEvents',
+        method: "GET",
+        data: { snCheckboxJson: JSON.stringify(checkboxJson), workerId: workerId, fio: fio, group: group, dateBeg: dateBeg, dateEnd: dateEnd },
+        success: function (data) {
+            $('.table-event-spinner').addClass('d-none');
+            console.log(data)
+            var link = document.createElement('a');
+            link.setAttribute('href', data);
+            link.setAttribute('download', 'download.xlsx');
+            link.click();
+        }
+    });
+}
+
+
+// Печать отчета по событиям
+function PrintEvents() {
+    let checkboxJson = [];
+    $(`.Modal_filter_sn_checkbox:checkbox:checked`).each(function () {
+        checkboxJson.push($(this).val());
+    })
+    var workerId = $('#filter_events_worker').val();
+    var fio = $('#filter_events_fio').val();
+    var dateBeg = $('#filter_events_date_beg').val();
+    var dateEnd = $('#filter_events_date_end').val();
+    let group = $('#filter_events_select_group').val();
+    $('.table-event-spinner').removeClass('d-none');
+    $.ajax({
+        url: '/?handler=PrintEvents',
+        method: "GET",
+        data: { snCheckboxJson: JSON.stringify(checkboxJson), workerId: workerId, fio: fio, group: group, dateBeg: dateBeg, dateEnd: dateEnd },
+        success: function (data) {
+            $('.table-event-spinner').addClass('d-none');
+            console.log(data);
+            var link = document.createElement('a');
+            link.setAttribute('href', data);
+            link.setAttribute('target', '_blank');
+            link.click();
+        }
+    });
+}
+
+
+// Задание имени контроллера
+function SetControllerName(controllerId, name) {
+    $.ajax({
+        url: '/?handler=SetControllerName',
+        method: "GET",
+        data: { id: controllerId, name: name },
+        success: function (data) {
+            if (data == 'true') {
+                alert("success");
+            }
+            else {
+                alert(data);                
+            }
+            location.reload()
+        }
+    });
+}
+
+
+// Открытие модального окна для редактирования сотрудника
+$('.edit_worker').on('click', function () {
+    let workerId = $(this).attr('worker-id')
+    $.ajax({
+        url: `/?handler=CarPartial&id=${workerId}`,
+        method: "GET",
+        success: function (html) {
+            console.log($(html).find('.modal-content').html())
+            $('#Modal_worker_edit .modal-dialog').html(html);
+        },
+        error: (res) => {
+            console.log(res)
+        }
+    });
+});
+
+
+// Открытие модального окна для добавления сотрудника
+$('.add_worker').on('click', function () {
+    $.ajax({
+        url: `/?handler=CarPartial`,
+        method: "GET",
+        success: function (html) {
+            console.log($(html).find('.modal-content').html())
+            $('#Modal_worker_edit .modal-dialog').html(html);
+        },
+        error: (res) => {
+            console.log(res)
+        }
+    });
+});
+
+
+// Смена типа доступа (Переключение радиокнопок)
+$('.radio_access').on('click', function () {
+    let workerId = $(this).attr('worker-id')
+    let personalCheck = $(this).attr('value')
+    $.ajax({
+        url: '/?handler=ChangePersonalCheck',
+        method: "GET",
+        data: { workerId: workerId, personalCheck: personalCheck }
+    });
+});
